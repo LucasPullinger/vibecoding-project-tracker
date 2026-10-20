@@ -52,6 +52,26 @@ export const STAGES = [
 // They become the only valid values for `Task.assignee`.
 export const TEAM = ['Teammate A', 'Teammate B', 'Teammate C'];
 
+const AI_TOOLS = ['Claude', 'ChatGPT', 'Cursor', 'Lovable', 'Replit', 'Other'];
+
+const CONTEXT_PLACEHOLDER = `Goal:
+What are you trying to achieve?
+
+Current implementation:
+What has already been completed?
+
+Technical context:
+Relevant technologies, files, and dependencies.
+
+Important decisions:
+What decisions have been made and why?
+
+Next steps:
+What should the AI assistant or next developer do?
+
+Constraints:
+What must remain unchanged?`;
+
 const TASK_FIELDS = [
   'id',
   'title',
@@ -145,6 +165,18 @@ function formatDueDate(dueDate) {
   }).format(new Date(`${dueDate}T00:00:00Z`));
 }
 
+function formatContextUpdatedAt(timestamp) {
+  if (!timestamp) return 'Not yet saved';
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 'Not available';
+
+  return new Intl.DateTimeFormat('en-GB', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 function getLocalDate() {
   const date = new Date();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -195,6 +227,8 @@ function createEmptyForm() {
     status: 'todo',
     assignee: TEAM[0],
     dueDate: '',
+    context: '',
+    contextTool: '',
   };
 }
 
@@ -288,6 +322,8 @@ export default function App() {
       status: task.status,
       assignee: task.assignee,
       dueDate: task.dueDate ?? '',
+      context: task.context,
+      contextTool: task.contextTool ?? '',
     });
     setErrors({});
     setIsCreating(false);
@@ -323,10 +359,21 @@ export default function App() {
       assignee: form.assignee,
       dueDate: form.dueDate || null,
     };
+    const contextTool = form.contextTool || null;
 
     if (editingTask) {
+      const contextChanged = form.context !== editingTask.context
+        || contextTool !== editingTask.contextTool;
+      const contextFields = {
+        context: form.context,
+        contextTool,
+        contextUpdatedAt: contextChanged
+          ? new Date().toISOString()
+          : editingTask.contextUpdatedAt,
+      };
+
       setTasks((current) => current.map((task) => (
-        task.id === editingTask.id ? { ...task, ...editableFields } : task
+        task.id === editingTask.id ? { ...task, ...editableFields, ...contextFields } : task
       )));
       setNotice(
         editingTask.assignee === form.assignee
@@ -340,9 +387,9 @@ export default function App() {
           id: createTaskId(),
           ...editableFields,
           createdDate: getLocalDate(),
-          context: '',
-          contextTool: null,
-          contextUpdatedAt: null,
+          context: form.context,
+          contextTool,
+          contextUpdatedAt: form.context || contextTool ? new Date().toISOString() : null,
         },
       ]);
       setNotice('Task created.');
@@ -605,6 +652,58 @@ export default function App() {
                   </div>
                 </div>
               </fieldset>
+
+              <section
+                aria-labelledby="context-heading"
+                className="mt-6 rounded-md border border-brand-primary/15 bg-surface-page/60 p-4"
+              >
+                <div className="mb-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
+                    Continue the work
+                  </p>
+                  <h3 id="context-heading" className="mt-1 text-base font-semibold text-text-primary">
+                    Curated Context
+                  </h3>
+                </div>
+
+                <div>
+                  <label htmlFor="context" className="block text-sm font-medium text-text-primary">
+                    Curated Context <span className="font-normal text-text-muted">(optional)</span>
+                  </label>
+                  <textarea
+                    id="context"
+                    name="context"
+                    rows="10"
+                    value={form.context}
+                    onChange={updateForm}
+                    placeholder={CONTEXT_PLACEHOLDER}
+                    className="mt-1.5 w-full resize-y rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 font-mono text-sm leading-5 text-text-primary outline-none placeholder:text-text-muted/80 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                  />
+                </div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="contextTool" className="block text-sm font-medium text-text-primary">
+                      AI Tool
+                    </label>
+                    <select
+                      id="contextTool"
+                      name="contextTool"
+                      value={form.contextTool}
+                      onChange={updateForm}
+                      className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    >
+                      <option value="">No tool selected</option>
+                      {AI_TOOLS.map((tool) => <option key={tool} value={tool}>{tool}</option>)}
+                    </select>
+                  </div>
+                  <p className="self-end text-xs leading-5 text-text-muted">
+                    Last updated: {editingTask?.contextUpdatedAt
+                      ? <time dateTime={editingTask.contextUpdatedAt}>{formatContextUpdatedAt(editingTask.contextUpdatedAt)}</time>
+                      : 'Not yet saved'}
+                  </p>
+                </div>
+              </section>
 
               <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-brand-primary/10 pt-4">
                 {editingTask ? (
