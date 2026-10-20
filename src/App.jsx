@@ -1,5 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bug, Copy, Sparkles, User } from 'lucide-react';
+import {
+  BookOpen,
+  Bug,
+  Copy,
+  ExternalLink,
+  FileText,
+  Monitor,
+  Presentation,
+  Sparkles,
+  User,
+} from 'lucide-react';
+import {
+  DEFAULT_ANCHORS,
+  isValidAnchors,
+  isValidDeliverableUrl,
+} from './anchors';
 import { getDeadlineState } from './deadline';
 import { MOCK_TASKS } from './mockTasks';
 import { formatTaskPrompt } from './prompt';
@@ -123,6 +138,13 @@ const DEADLINE_DETAILS = {
     cardClassName: '',
     badgeClassName: '',
   },
+};
+
+const ANCHOR_DETAILS = {
+  presentation: Presentation,
+  demo: Monitor,
+  report: FileText,
+  documentation: BookOpen,
 };
 
 function TaskTypeBadge({ type }) {
@@ -269,7 +291,15 @@ export default function App() {
     MOCK_TASKS,
     (value) => Array.isArray(value) && value.every(isValidTask),
   );
+  const [anchors, setAnchors] = useLocalStorage(
+    'vibetracker.anchors',
+    DEFAULT_ANCHORS,
+    isValidAnchors,
+  );
   const [editingTask, setEditingTask] = useState(null);
+  const [editingAnchorId, setEditingAnchorId] = useState(null);
+  const [anchorUrl, setAnchorUrl] = useState('');
+  const [anchorError, setAnchorError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [form, setForm] = useState(createEmptyForm);
   const [errors, setErrors] = useState({});
@@ -278,6 +308,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const titleInputRef = useRef(null);
   const assigneeSelectRef = useRef(null);
+  const anchorUrlInputRef = useRef(null);
   const triggerRef = useRef(null);
   const isModalOpen = isCreating || editingTask !== null;
 
@@ -299,6 +330,12 @@ export default function App() {
 
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    if (editingAnchorId) {
+      window.requestAnimationFrame(() => anchorUrlInputRef.current?.focus());
+    }
+  }, [editingAnchorId]);
 
   function closeModal() {
     setEditingTask(null);
@@ -410,6 +447,43 @@ export default function App() {
     closeModal();
   }
 
+  function openAnchorEditor(anchor) {
+    setEditingAnchorId(anchor.id);
+    setAnchorUrl(anchor.url ?? '');
+    setAnchorError('');
+  }
+
+  function closeAnchorEditor() {
+    setEditingAnchorId(null);
+    setAnchorUrl('');
+    setAnchorError('');
+  }
+
+  function saveAnchor(event, anchor) {
+    event.preventDefault();
+
+    const url = anchorUrl.trim();
+    if (url && !isValidDeliverableUrl(url)) {
+      setAnchorError('Please enter a valid URL.');
+      anchorUrlInputRef.current?.focus();
+      return;
+    }
+
+    setAnchors((current) => current.map((item) => (
+      item.id === anchor.id ? { ...item, url: url || null } : item
+    )));
+    setNotice(url ? 'Deliverable link saved.' : 'Deliverable link removed.');
+    closeAnchorEditor();
+  }
+
+  function removeAnchorLink(anchor) {
+    setAnchors((current) => current.map((item) => (
+      item.id === anchor.id ? { ...item, url: null } : item
+    )));
+    setNotice('Deliverable link removed.');
+    closeAnchorEditor();
+  }
+
   async function copyPromptContext() {
     if (!editingTask || isCopying) return;
 
@@ -464,7 +538,116 @@ export default function App() {
         </p>
       )}
 
-      {/* TODO M11 anchors: render the Anchor Board (Presentation / Demo / Report / Documentation) above the board. */}
+      <section className="mx-auto mb-8 max-w-screen-2xl" aria-labelledby="deliverables-heading">
+        <div className="mb-4">
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
+            Project outcomes
+          </p>
+          <h2 id="deliverables-heading" className="mt-1 text-base font-semibold uppercase tracking-wide text-text-primary">
+            Project Deliverables
+          </h2>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {anchors.map((anchor) => {
+            const Icon = ANCHOR_DETAILS[anchor.id];
+            const isEditing = editingAnchorId === anchor.id;
+
+            return (
+              <article
+                key={anchor.id}
+                className="rounded-lg border border-brand-primary/15 bg-surface-card p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2 text-brand-primary">
+                    <Icon aria-hidden="true" size={18} strokeWidth={2} />
+                    <h3 className="truncate text-sm font-medium text-text-primary">{anchor.label}</h3>
+                  </div>
+                  <span className={`shrink-0 rounded border px-2 py-0.5 text-xs font-medium ${
+                    anchor.url
+                      ? 'border-brand-primary/20 bg-brand-primary/10 text-brand-primary'
+                      : 'border-due-neutral/20 bg-due-neutral/10 text-due-neutral'
+                  }`}>
+                    {anchor.url ? 'Linked' : 'Not linked'}
+                  </span>
+                </div>
+
+                {isEditing ? (
+                  <form className="mt-4" onSubmit={(event) => saveAnchor(event, anchor)}>
+                    <label htmlFor={`anchor-url-${anchor.id}`} className="block text-sm font-medium text-text-primary">
+                      Deliverable URL
+                    </label>
+                    <input
+                      ref={anchorUrlInputRef}
+                      id={`anchor-url-${anchor.id}`}
+                      type="url"
+                      value={anchorUrl}
+                      onChange={(event) => {
+                        setAnchorUrl(event.target.value);
+                        if (anchorError) setAnchorError('');
+                      }}
+                      placeholder="https://example.com"
+                      aria-invalid={Boolean(anchorError)}
+                      aria-describedby={anchorError ? `anchor-url-error-${anchor.id}` : undefined}
+                      className="mt-1.5 w-full rounded-md border border-brand-primary/20 px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    />
+                    {anchorError && (
+                      <p id={`anchor-url-error-${anchor.id}`} className="mt-1.5 text-sm text-type-bug" role="alert">
+                        {anchorError}
+                      </p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="submit"
+                        className="rounded-md bg-brand-primary px-3 py-2 text-sm font-medium text-surface-card hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+                      >
+                        Save link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={closeAnchorEditor}
+                        className="rounded-md border border-brand-primary/20 px-3 py-2 text-sm font-medium text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                      >
+                        Cancel
+                      </button>
+                      {anchor.url && (
+                        <button
+                          type="button"
+                          onClick={() => removeAnchorLink(anchor)}
+                          className="rounded-md px-3 py-2 text-sm font-medium text-type-bug hover:bg-type-bug/10 focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                        >
+                          Remove link
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                ) : (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openAnchorEditor(anchor)}
+                      className="rounded-md border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                    >
+                      {anchor.url ? 'Edit link' : 'Add link'}
+                    </button>
+                    {anchor.url && (
+                      <a
+                        href={anchor.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                      >
+                        Open link
+                        <ExternalLink aria-hidden="true" size={14} strokeWidth={2} />
+                      </a>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
 
       <main className="mx-auto max-w-screen-2xl" aria-label="Kanban board">
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
