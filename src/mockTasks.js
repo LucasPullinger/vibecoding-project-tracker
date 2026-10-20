@@ -1,6 +1,6 @@
 export const MOCK_TASKS = [
   {
-    id: 'task-1',
+    id: '1792454400001',
     title: 'Create Kanban board layout',
     description: 'Build the four-column workspace for the project tracker.',
     type: 'feature',
@@ -8,9 +8,12 @@ export const MOCK_TASKS = [
     assignee: 'Teammate A',
     dueDate: '2026-10-24',
     createdDate: '2026-10-20',
+    context: '',
+    contextTool: null,
+    contextUpdatedAt: null,
   },
   {
-    id: 'task-2',
+    id: '1792454400002',
     title: 'Review task card hierarchy',
     description: 'Check that task details are easy to scan at a glance.',
     type: 'feature',
@@ -18,9 +21,12 @@ export const MOCK_TASKS = [
     assignee: 'Teammate B',
     dueDate: '2026-10-22',
     createdDate: '2026-10-20',
+    context: '',
+    contextTool: null,
+    contextUpdatedAt: null,
   },
   {
-    id: 'task-3',
+    id: '1792454400003',
     title: 'Fix narrow-screen column spacing',
     description: 'Keep cards readable when the board wraps to fewer columns.',
     type: 'bug',
@@ -28,9 +34,12 @@ export const MOCK_TASKS = [
     assignee: 'Teammate C',
     dueDate: '2026-10-21',
     createdDate: '2026-10-20',
+    context: '',
+    contextTool: null,
+    contextUpdatedAt: null,
   },
   {
-    id: 'task-4',
+    id: '1792454400004',
     title: 'Set up project colour tokens',
     description: 'Add the approved design colours to the Tailwind theme.',
     type: 'feature',
@@ -38,5 +47,8 @@ export const MOCK_TASKS = [
     assignee: 'Teammate B',
     dueDate: '2026-10-20',
     createdDate: '2026-10-20',
+    context: '',
+    contextTool: null,
+    contextUpdatedAt: null,
   },
 ];

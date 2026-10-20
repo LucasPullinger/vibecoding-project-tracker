@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MOCK_TASKS } from './mockTasks';
 
 /**
@@ -32,6 +32,9 @@ import { MOCK_TASKS } from './mockTasks';
  * @property {string} assignee
  * @property {string|null} dueDate     ISO 'YYYY-MM-DD'
  * @property {string} createdDate      ISO 'YYYY-MM-DD'
+ * @property {string} context
+ * @property {string|null} contextTool
+ * @property {string|null} contextUpdatedAt
  */
 
 // The four columns of the board, in render order.
@@ -47,6 +50,20 @@ export const STAGES = [
 // They become the only valid values for `Task.assignee`.
 export const TEAM = ['Teammate A', 'Teammate B', 'Teammate C'];
 
+const TASK_FIELDS = [
+  'id',
+  'title',
+  'description',
+  'type',
+  'status',
+  'assignee',
+  'dueDate',
+  'createdDate',
+  'context',
+  'contextTool',
+  'contextUpdatedAt',
+];
+
 const TYPE_STYLES = {
   feature: 'border-type-feature text-type-feature',
   bug: 'border-type-bug text-type-bug',
@@ -61,17 +78,73 @@ function formatDueDate(dueDate) {
   }).format(new Date(`${dueDate}T00:00:00Z`));
 }
 
+function getLocalDate() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function createTaskId() {
+  return globalThis.crypto?.randomUUID?.() ?? String(Date.now());
+}
+
+function isIsoDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isTaskId(value) {
+  return typeof value === 'string'
+    && (/^\d+$/.test(value) || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+}
+
+function isValidTask(task) {
+  if (!task || typeof task !== 'object') return false;
+
+  const keys = Object.keys(task).sort();
+  const fields = [...TASK_FIELDS].sort();
+
+  return keys.length === fields.length
+    && keys.every((key, index) => key === fields[index])
+    && isTaskId(task.id)
+    && typeof task.title === 'string'
+    && typeof task.description === 'string'
+    && ['feature', 'bug'].includes(task.type)
+    && STAGES.some((stage) => stage.id === task.status)
+    && TEAM.includes(task.assignee)
+    && (task.dueDate === null || isIsoDate(task.dueDate))
+    && isIsoDate(task.createdDate)
+    && typeof task.context === 'string'
+    && (task.contextTool === null || typeof task.contextTool === 'string')
+    && (task.contextUpdatedAt === null || typeof task.contextUpdatedAt === 'string');
+}
+
+function createEmptyForm() {
+  return {
+    title: '',
+    description: '',
+    type: 'feature',
+    status: 'todo',
+    assignee: TEAM[0],
+    dueDate: '',
+  };
+}
+
 /**
  * A tiny localStorage hook — survives reloads, no library needed.
  *
  * Usage:
  *   const [tasks, setTasks] = useLocalStorage('vibetracker.tasks', []);
  */
-export function useLocalStorage(key, initialValue) {
+export function useLocalStorage(key, initialValue, isValidValue = () => true) {
   const [value, setValue] = useState(() => {
     try {
       const raw = window.localStorage.getItem(key);
-      return raw != null ? JSON.parse(raw) : initialValue;
+      if (raw === null) return initialValue;
+
+      const parsed = JSON.parse(raw);
+      return isValidValue(parsed) ? parsed : initialValue;
     } catch {
       return initialValue;
     }
@@ -89,18 +162,123 @@ export function useLocalStorage(key, initialValue) {
 }
 
 export default function App() {
-  // TODO M4 data-model:
-  //   const [tasks, setTasks] = useLocalStorage('vibetracker.tasks', [/* 3-4 seed tasks */]);
-  //
-  // TODO M5 crud-modal:
-  //   const [editing, setEditing] = useState(null);
-  //
-  // TODO M11 anchors:
-  //   const [anchors, setAnchors] = useLocalStorage('vibetracker.anchors', [...]);
+  const [tasks, setTasks] = useLocalStorage(
+    'vibetracker.tasks',
+    MOCK_TASKS,
+    (value) => Array.isArray(value) && value.every(isValidTask),
+  );
+  const [editingTask, setEditingTask] = useState(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [form, setForm] = useState(createEmptyForm);
+  const [errors, setErrors] = useState({});
+  const [notice, setNotice] = useState('');
+  const titleInputRef = useRef(null);
+  const triggerRef = useRef(null);
+  const isModalOpen = isCreating || editingTask !== null;
+
+  useEffect(() => {
+    if (!isModalOpen) return undefined;
+
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') closeModal();
+    };
+
+    document.addEventListener('keydown', closeOnEscape);
+    window.requestAnimationFrame(() => titleInputRef.current?.focus());
+
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [isModalOpen]);
+
+  function closeModal() {
+    setEditingTask(null);
+    setIsCreating(false);
+    setErrors({});
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function openCreate(event) {
+    triggerRef.current = event.currentTarget;
+    setForm(createEmptyForm());
+    setErrors({});
+    setEditingTask(null);
+    setIsCreating(true);
+  }
+
+  function openEdit(task, event) {
+    triggerRef.current = event.currentTarget;
+    setForm({
+      title: task.title,
+      description: task.description,
+      type: task.type,
+      status: task.status,
+      assignee: task.assignee,
+      dueDate: task.dueDate ?? '',
+    });
+    setErrors({});
+    setIsCreating(false);
+    setEditingTask(task);
+  }
+
+  function updateForm(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+    if (errors[name]) setErrors((current) => ({ ...current, [name]: '' }));
+  }
+
+  function saveTask(event) {
+    event.preventDefault();
+
+    if (!form.title.trim()) {
+      setErrors({ title: 'Enter a task title.' });
+      titleInputRef.current?.focus();
+      return;
+    }
+
+    const editableFields = {
+      title: form.title.trim(),
+      description: form.description.trim(),
+      type: form.type,
+      status: form.status,
+      assignee: form.assignee,
+      dueDate: form.dueDate || null,
+    };
+
+    if (editingTask) {
+      setTasks((current) => current.map((task) => (
+        task.id === editingTask.id ? { ...task, ...editableFields } : task
+      )));
+      setNotice('Task updated.');
+    } else {
+      setTasks((current) => [
+        ...current,
+        {
+          id: createTaskId(),
+          ...editableFields,
+          createdDate: getLocalDate(),
+          context: '',
+          contextTool: null,
+          contextUpdatedAt: null,
+        },
+      ]);
+      setNotice('Task created.');
+    }
+
+    closeModal();
+  }
+
+  function deleteTask() {
+    if (!editingTask || !window.confirm('Delete this task? This action cannot be undone.')) {
+      return;
+    }
+
+    setTasks((current) => current.filter((task) => task.id !== editingTask.id));
+    setNotice('Task deleted.');
+    closeModal();
+  }
 
   return (
     <div className="min-h-screen bg-surface-page px-4 py-6 sm:px-6 lg:px-8">
-      <header className="mx-auto mb-8 max-w-screen-2xl">
+      <header className="mx-auto mb-8 flex max-w-screen-2xl items-end justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
             Vibecoding project tracker
@@ -109,14 +287,28 @@ export default function App() {
             Anchor
           </h1>
         </div>
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={openCreate}
+          className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+        >
+          + New task
+        </button>
       </header>
+
+      {notice && (
+        <p className="mx-auto mb-4 max-w-screen-2xl text-sm text-brand-primary" role="status">
+          {notice}
+        </p>
+      )}
 
       {/* TODO M11 anchors: render the Anchor Board (Presentation / Demo / Report / Documentation) above the board. */}
 
       <main className="mx-auto max-w-screen-2xl" aria-label="Kanban board">
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {STAGES.map((stage) => {
-            const stageTasks = MOCK_TASKS.filter((task) => task.status === stage.id);
+            const stageTasks = tasks.filter((task) => task.status === stage.id);
 
             return (
               <section
@@ -138,9 +330,12 @@ export default function App() {
 
                 <div className="space-y-3">
                   {stageTasks.map((task) => (
-                    <article
+                    <button
                       key={task.id}
-                      className={`rounded-md border border-brand-primary/15 border-l-4 bg-surface-card p-4 shadow-sm ${
+                      type="button"
+                      onClick={(event) => openEdit(task, event)}
+                      aria-label={`Edit ${task.title}`}
+                      className={`block w-full rounded-md border border-brand-primary/15 border-l-4 bg-surface-card p-4 text-left shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 ${
                         task.type === 'feature' ? 'border-l-type-feature' : 'border-l-type-bug'
                       }`}
                     >
@@ -157,26 +352,190 @@ export default function App() {
                       <p className="mt-2 text-sm leading-5 text-text-muted">
                         {task.description}
                       </p>
-                      <dl className="mt-4 space-y-1.5 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
+                      <div className="mt-4 space-y-1.5 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
                         <div className="flex justify-between gap-3">
-                          <dt>Assigned to</dt>
-                          <dd className="font-medium text-text-primary">{task.assignee}</dd>
+                          <span>Assigned to</span>
+                          <span className="font-medium text-text-primary">{task.assignee}</span>
                         </div>
                         <div className="flex justify-between gap-3">
-                          <dt>Due</dt>
-                          <dd className="font-medium text-text-primary">
-                            <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
-                          </dd>
+                          <span>Due</span>
+                          <span className="font-medium text-text-primary">
+                            {task.dueDate ? (
+                              <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
+                            ) : 'No due date'}
+                          </span>
                         </div>
-                      </dl>
-                    </article>
+                      </div>
+                    </button>
                   ))}
+                  {stageTasks.length === 0 && (
+                    <p className="rounded-md border border-dashed border-brand-primary/20 px-3 py-6 text-center text-sm text-text-muted">
+                      No tasks in this stage.
+                    </p>
+                  )}
                 </div>
               </section>
             );
           })}
         </div>
       </main>
+
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeModal();
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="task-modal-title"
+            className="max-h-[calc(100vh-2rem)] w-full max-w-[640px] overflow-y-auto rounded-lg bg-surface-card p-6 shadow-xl"
+          >
+            <div className="mb-6">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
+                {editingTask ? 'Update task' : 'Create task'}
+              </p>
+              <h2 id="task-modal-title" className="mt-1 text-xl font-semibold text-text-primary">
+                {editingTask ? 'Edit task' : 'New task'}
+              </h2>
+            </div>
+
+            <form noValidate onSubmit={saveTask}>
+              <fieldset className="space-y-4">
+                <legend className="sr-only">Task details</legend>
+                <div>
+                  <label htmlFor="title" className="block text-sm font-medium text-text-primary">
+                    Title <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    ref={titleInputRef}
+                    id="title"
+                    name="title"
+                    type="text"
+                    value={form.title}
+                    onChange={updateForm}
+                    aria-invalid={Boolean(errors.title)}
+                    aria-describedby={errors.title ? 'title-error' : undefined}
+                    className="mt-1.5 w-full rounded-md border border-brand-primary/20 px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                  />
+                  {errors.title && (
+                    <p id="title-error" className="mt-1.5 text-sm text-type-bug" role="alert">
+                      {errors.title}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="description" className="block text-sm font-medium text-text-primary">
+                    Description
+                  </label>
+                  <textarea
+                    id="description"
+                    name="description"
+                    rows="3"
+                    value={form.description}
+                    onChange={updateForm}
+                    className="mt-1.5 w-full rounded-md border border-brand-primary/20 px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="type" className="block text-sm font-medium text-text-primary">
+                      Type
+                    </label>
+                    <select
+                      id="type"
+                      name="type"
+                      value={form.type}
+                      onChange={updateForm}
+                      className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    >
+                      <option value="feature">Feature</option>
+                      <option value="bug">Bug</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="status" className="block text-sm font-medium text-text-primary">
+                      Status
+                    </label>
+                    <select
+                      id="status"
+                      name="status"
+                      value={form.status}
+                      onChange={updateForm}
+                      className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    >
+                      {STAGES.map((stage) => (
+                        <option key={stage.id} value={stage.id}>{stage.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="assignee" className="block text-sm font-medium text-text-primary">
+                      Assignee
+                    </label>
+                    <select
+                      id="assignee"
+                      name="assignee"
+                      value={form.assignee}
+                      onChange={updateForm}
+                      className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    >
+                      {TEAM.map((member) => <option key={member} value={member}>{member}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="dueDate" className="block text-sm font-medium text-text-primary">
+                      Due date <span className="font-normal text-text-muted">(optional)</span>
+                    </label>
+                    <input
+                      id="dueDate"
+                      name="dueDate"
+                      type="date"
+                      value={form.dueDate}
+                      onChange={updateForm}
+                      className="mt-1.5 w-full rounded-md border border-brand-primary/20 px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    />
+                  </div>
+                </div>
+              </fieldset>
+
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-brand-primary/10 pt-4">
+                {editingTask ? (
+                  <button
+                    type="button"
+                    onClick={deleteTask}
+                    className="rounded-md px-3 py-2 text-sm font-medium text-type-bug hover:bg-type-bug/10 focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                  >
+                    Delete
+                  </button>
+                ) : <span />}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="rounded-md border border-brand-primary/20 px-4 py-2 text-sm font-medium text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+                  >
+                    {editingTask ? 'Save changes' : 'Create task'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
