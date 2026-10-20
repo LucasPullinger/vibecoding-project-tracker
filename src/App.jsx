@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
+import { PieChart, pieClasses } from '@mui/x-charts/PieChart';
 import {
   Anchor,
   BookOpen,
@@ -273,6 +274,39 @@ function BoardColumn({ children, provided, snapshot, stage }) {
     >
       {children}
     </section>
+  );
+}
+
+function StatusPieChart({ statusCounts }) {
+  const colors = {
+    todo: 'rgb(var(--color-due-neutral))',
+    'in-progress': 'rgb(var(--color-type-feature))',
+    review: 'rgb(var(--color-due-warning))',
+    done: 'rgb(var(--color-due-safe))',
+  };
+  return (
+    <PieChart
+      aria-label={`Task status distribution: ${statusCounts.map(({ label, count }) => `${label} ${count}`).join(', ')}`}
+      className="shrink-0"
+      colors={statusCounts.map(({ id }) => colors[id])}
+      height={172}
+      hideLegend
+      margin={{ top: 6, right: 6, bottom: 6, left: 6 }}
+      series={[{
+        data: statusCounts.map(({ id, label, count }) => ({ id, label, value: count })),
+        cornerRadius: 0,
+        highlightScope: { fade: 'global', highlight: 'item' },
+        outerRadius: 72,
+        paddingAngle: 0,
+      }]}
+      sx={{
+        [`& .${pieClasses.arc}`]: {
+          stroke: 'transparent',
+          strokeWidth: 0,
+        },
+      }}
+      width={172}
+    />
   );
 }
 
@@ -981,6 +1015,14 @@ export default function App() {
       && (filterType === 'all' || task.type === filterType)
       && (filterAssignee === 'all' || task.assignee === filterAssignee);
   });
+  const statusCounts = STAGES.map((stage) => ({
+    ...stage,
+    count: tasks.filter((task) => task.status === stage.id).length,
+  }));
+  const attentionCount = tasks.filter((task) => {
+    const state = getDeadlineState(task.dueDate, task.status, currentTime);
+    return state === 'warning' || state === 'overdue';
+  }).length;
 
   function clearFilters() {
     setSearchQuery('');
@@ -1330,9 +1372,9 @@ export default function App() {
             <ChevronDown aria-hidden="true" size={16} className="text-text-muted transition-transform duration-200 group-open:rotate-180" />
           </div>
         </summary>
-        <div className="absolute right-0 z-10 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-sm border border-brand-primary/15 bg-surface-card p-4 shadow-lg">
+        <div className="absolute left-0 z-10 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-sm border border-brand-primary/15 bg-surface-card p-4 shadow-lg">
           {hasActiveFilters && (
-            <div className="mb-3 flex justify-end">
+            <div className="mb-3 flex justify-start">
               <button
                 type="button"
                 onClick={clearFilters}
@@ -1503,6 +1545,46 @@ export default function App() {
           </div>
         </main>
       </DragDropContext>
+      <section className="mt-12 border-t border-brand-primary/15 pt-8" aria-labelledby="at-a-glance-heading">
+        <div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Board overview</p>
+            <h2 id="at-a-glance-heading" className="mt-1 text-xl font-semibold text-text-primary">At a glance</h2>
+            <p className="mt-1 text-sm text-text-muted">Live task distribution for {activeBoard.name}.</p>
+          </div>
+        </div>
+        <div className="mt-5 max-w-5xl overflow-hidden rounded-sm border border-brand-primary/15 bg-surface-card md:grid md:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
+          <div className="flex items-center gap-5 border-b border-brand-primary/15 p-5 md:border-b-0 md:border-r">
+            <StatusPieChart statusCounts={statusCounts} />
+            <div className="space-y-2 text-sm">
+              {statusCounts.map((status) => (
+                <div key={status.id} className="flex items-center gap-2 text-text-muted">
+                  <span
+                    aria-hidden="true"
+                    className={`size-2 rounded-full ${status.id === 'todo' ? 'bg-due-neutral' : status.id === 'in-progress' ? 'bg-type-feature' : status.id === 'review' ? 'bg-due-warning' : 'bg-due-safe'}`}
+                  />
+                  <span>{status.label}</span>
+                  <span className="font-medium text-text-primary">{status.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <dl className="grid grid-cols-3 divide-x divide-brand-primary/15 p-5">
+            <div className="px-3 first:pl-0">
+              <dt className="text-sm text-text-muted">Total tasks</dt>
+              <dd className="mt-1 text-2xl font-semibold text-text-primary">{tasks.length}</dd>
+            </div>
+            <div className="px-3">
+              <dt className="text-sm text-text-muted">In progress</dt>
+              <dd className="mt-1 text-2xl font-semibold text-text-primary">{statusCounts.find((status) => status.id === 'in-progress')?.count ?? 0}</dd>
+            </div>
+            <div className="px-3 pr-0">
+              <dt className="text-sm text-text-muted">Needs attention</dt>
+              <dd className="mt-1 text-2xl font-semibold text-text-primary">{attentionCount}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
       </>
       )}
         </div>
@@ -1515,7 +1597,7 @@ export default function App() {
 
       {isModalOpen && (
         <div
-          className="fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
+          className="modal-backdrop fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeModal();
           }}
@@ -1524,7 +1606,7 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="task-modal-title"
-            className="max-h-[calc(100vh-2rem)] w-full max-w-[640px] overflow-y-auto rounded-lg bg-surface-card p-6 shadow-xl"
+            className="modal-panel max-h-[calc(100vh-2rem)] w-full max-w-[640px] overflow-y-auto rounded-lg bg-surface-card p-6 shadow-xl"
           >
             <div className="mb-6">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
@@ -1613,13 +1695,6 @@ export default function App() {
                     <label htmlFor="assignee" className="block text-sm font-medium text-text-primary">
                       Assignee
                     </label>
-                    {editingTask && (
-                      <p id="assignee-help" className="mt-1 text-xs text-text-muted">
-                        {editingTask.assignee === UNASSIGNED
-                          ? 'Currently unassigned.'
-                          : `Currently assigned to ${editingTask.assignee}.`}
-                      </p>
-                    )}
                     <select
                       ref={assigneeSelectRef}
                       id="assignee"
@@ -1627,7 +1702,6 @@ export default function App() {
                       value={form.assignee}
                       onChange={updateForm}
                       aria-invalid={Boolean(errors.assignee)}
-                      aria-describedby={editingTask ? 'assignee-help' : undefined}
                       className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
                     >
                       {assignees.map((member) => <option key={member} value={member}>{member}</option>)}
@@ -1812,7 +1886,7 @@ export default function App() {
 
       {isProjectSettingsOpen && (
         <div
-          className="fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
+          className="modal-backdrop fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeProjectSettings();
           }}
@@ -1821,7 +1895,7 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="project-settings-title"
-            className="w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl"
+            className="modal-panel w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl"
           >
             <div className="mb-6">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
@@ -1918,7 +1992,7 @@ export default function App() {
 
       {isCreateBoardOpen && (
         <div
-          className="fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
+          className="modal-backdrop fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeBoardCreator();
           }}
@@ -1927,7 +2001,7 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-board-title"
-            className="w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl"
+            className="modal-panel w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl"
           >
             <div className="mb-6">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
