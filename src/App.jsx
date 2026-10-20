@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bug, Sparkles, User } from 'lucide-react';
+import { getDeadlineState } from './deadline';
 import { MOCK_TASKS } from './mockTasks';
 
 /**
@@ -80,6 +81,29 @@ const TASK_TYPE_DETAILS = {
   },
 };
 
+const DEADLINE_DETAILS = {
+  safe: {
+    label: 'Due later',
+    cardClassName: 'border-due-safe/40 bg-due-safe/5',
+    badgeClassName: 'border-due-safe/30 bg-due-safe/10 text-due-safe',
+  },
+  warning: {
+    label: 'Due soon',
+    cardClassName: 'border-due-warning/40 bg-due-warning/10',
+    badgeClassName: 'border-due-warning/30 bg-due-warning/10 text-due-warning',
+  },
+  overdue: {
+    label: 'Overdue',
+    cardClassName: 'border-due-overdue/40 bg-due-overdue/5',
+    badgeClassName: 'border-due-overdue/30 bg-due-overdue/10 text-due-overdue',
+  },
+  neutral: {
+    label: null,
+    cardClassName: '',
+    badgeClassName: '',
+  },
+};
+
 function TaskTypeBadge({ type }) {
   const { label, Icon, badgeClassName } = TASK_TYPE_DETAILS[type];
 
@@ -96,6 +120,18 @@ function AssigneeBadge({ assignee }) {
     <span className="inline-flex max-w-full items-center gap-1 rounded border border-brand-primary/20 bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
       <User aria-hidden="true" size={14} strokeWidth={2} />
       <span className="truncate">{assignee}</span>
+    </span>
+  );
+}
+
+function DeadlineIndicator({ state }) {
+  const { label, badgeClassName } = DEADLINE_DETAILS[state];
+
+  if (!label) return null;
+
+  return (
+    <span className={`shrink-0 rounded border px-2 py-0.5 text-xs font-medium ${badgeClassName}`}>
+      {label}
     </span>
   );
 }
@@ -203,6 +239,7 @@ export default function App() {
   const [form, setForm] = useState(createEmptyForm);
   const [errors, setErrors] = useState({});
   const [notice, setNotice] = useState('');
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const titleInputRef = useRef(null);
   const assigneeSelectRef = useRef(null);
   const triggerRef = useRef(null);
@@ -220,6 +257,12 @@ export default function App() {
 
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [isModalOpen]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setCurrentTime(new Date()), 60 * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   function closeModal() {
     setEditingTask(null);
@@ -371,36 +414,47 @@ export default function App() {
                 </header>
 
                 <div className="space-y-3">
-                  {stageTasks.map((task) => (
-                    <button
-                      key={task.id}
-                      type="button"
-                      onClick={(event) => openEdit(task, event)}
-                      aria-label={`Edit ${task.title}`}
-                      className={`block w-full rounded-md border border-brand-primary/15 border-l-4 bg-surface-card p-4 text-left shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="text-sm font-medium leading-5 text-text-primary">
-                          {task.title}
-                        </h3>
-                        <TaskTypeBadge type={task.type} />
-                      </div>
-                      <p className="mt-2 text-sm leading-5 text-text-muted">
-                        {task.description}
-                      </p>
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
-                        <AssigneeBadge assignee={task.assignee} />
-                        <span className="shrink-0">
-                          Due{' '}
-                          <span className="font-medium text-text-primary">
-                            {task.dueDate ? (
-                              <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
-                            ) : 'No due date'}
-                          </span>
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+                  {stageTasks.map((task) => {
+                    const deadlineState = getDeadlineState(task.dueDate, task.status, currentTime);
+                    const deadlineDetails = DEADLINE_DETAILS[deadlineState];
+                    const dueDateClassName = deadlineState === 'neutral'
+                      ? 'text-due-neutral'
+                      : 'text-text-primary';
+
+                    return (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={(event) => openEdit(task, event)}
+                        aria-label={`Edit ${task.title}`}
+                        className={`block w-full rounded-md border border-brand-primary/15 border-l-4 bg-surface-card p-4 text-left shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 ${deadlineDetails.cardClassName} ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-sm font-medium leading-5 text-text-primary">
+                            {task.title}
+                          </h3>
+                          <TaskTypeBadge type={task.type} />
+                        </div>
+                        <p className="mt-2 text-sm leading-5 text-text-muted">
+                          {task.description}
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
+                          <AssigneeBadge assignee={task.assignee} />
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <DeadlineIndicator state={deadlineState} />
+                            <span className="shrink-0">
+                              Due{' '}
+                              <span className={`font-medium ${dueDateClassName}`}>
+                                {task.dueDate ? (
+                                  <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
+                                ) : 'No due date'}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                   {stageTasks.length === 0 && (
                     <p className="rounded-md border border-dashed border-brand-primary/20 px-3 py-6 text-center text-sm text-text-muted">
                       No tasks in this stage.
