@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Bug, Sparkles } from 'lucide-react';
 import { MOCK_TASKS } from './mockTasks';
 
 /**
@@ -64,10 +65,31 @@ const TASK_FIELDS = [
   'contextUpdatedAt',
 ];
 
-const TYPE_STYLES = {
-  feature: 'border-type-feature text-type-feature',
-  bug: 'border-type-bug text-type-bug',
+const TASK_TYPE_DETAILS = {
+  feature: {
+    label: 'Feature',
+    Icon: Sparkles,
+    badgeClassName: 'border-type-feature/30 bg-type-feature/10 text-type-feature',
+    stripeClassName: 'border-l-type-feature',
+  },
+  bug: {
+    label: 'Bug',
+    Icon: Bug,
+    badgeClassName: 'border-type-bug/30 bg-type-bug/10 text-type-bug',
+    stripeClassName: 'border-l-type-bug',
+  },
 };
+
+function TaskTypeBadge({ type }) {
+  const { label, Icon, badgeClassName } = TASK_TYPE_DETAILS[type];
+
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 font-mono text-xs font-medium ${badgeClassName}`}>
+      <Icon aria-hidden="true" size={14} strokeWidth={2} />
+      {label}
+    </span>
+  );
+}
 
 function formatDueDate(dueDate) {
   return new Intl.DateTimeFormat('en-GB', {
@@ -335,19 +357,13 @@ export default function App() {
                       type="button"
                       onClick={(event) => openEdit(task, event)}
                       aria-label={`Edit ${task.title}`}
-                      className={`block w-full rounded-md border border-brand-primary/15 border-l-4 bg-surface-card p-4 text-left shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 ${
-                        task.type === 'feature' ? 'border-l-type-feature' : 'border-l-type-bug'
-                      }`}
+                      className={`block w-full rounded-md border border-brand-primary/15 border-l-4 bg-surface-card p-4 text-left shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="text-sm font-medium leading-5 text-text-primary">
                           {task.title}
                         </h3>
-                        <span
-                          className={`shrink-0 rounded border px-2 py-0.5 font-mono text-xs font-medium capitalize ${TYPE_STYLES[task.type]}`}
-                        >
-                          {task.type}
-                        </span>
+                        <TaskTypeBadge type={task.type} />
                       </div>
                       <p className="mt-2 text-sm leading-5 text-text-muted">
                         {task.description}
