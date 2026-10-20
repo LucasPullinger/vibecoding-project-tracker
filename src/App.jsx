@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bug, Sparkles, User } from 'lucide-react';
+import { Bug, Copy, Sparkles, User } from 'lucide-react';
 import { getDeadlineState } from './deadline';
 import { MOCK_TASKS } from './mockTasks';
+import { formatTaskPrompt } from './prompt';
 
 /**
  * Vibecoding Project Tracker — starter scaffold.
@@ -273,6 +274,7 @@ export default function App() {
   const [form, setForm] = useState(createEmptyForm);
   const [errors, setErrors] = useState({});
   const [notice, setNotice] = useState('');
+  const [isCopying, setIsCopying] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const titleInputRef = useRef(null);
   const assigneeSelectRef = useRef(null);
@@ -408,6 +410,33 @@ export default function App() {
     closeModal();
   }
 
+  async function copyPromptContext() {
+    if (!editingTask || isCopying) return;
+
+    const taskForPrompt = {
+      ...editingTask,
+      title: form.title,
+      description: form.description,
+      type: form.type,
+      status: form.status,
+      assignee: form.assignee,
+      dueDate: form.dueDate || null,
+      context: form.context,
+      contextTool: form.contextTool || null,
+    };
+
+    setIsCopying(true);
+
+    try {
+      await navigator.clipboard.writeText(formatTaskPrompt(taskForPrompt));
+      setNotice('Prompt context copied.');
+    } catch {
+      setNotice('Unable to copy prompt. Please try again.');
+    } finally {
+      setIsCopying(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-surface-page px-4 py-6 sm:px-6 lg:px-8">
       <header className="mx-auto mb-8 flex max-w-screen-2xl items-end justify-between gap-4">
@@ -430,7 +459,7 @@ export default function App() {
       </header>
 
       {notice && (
-        <p className="mx-auto mb-4 max-w-screen-2xl text-sm text-brand-primary" role="status">
+        <p className="fixed right-4 top-4 z-20 rounded-md border border-brand-primary/20 bg-surface-card px-4 py-3 text-sm text-brand-primary shadow-md" role="status">
           {notice}
         </p>
       )}
@@ -703,6 +732,17 @@ export default function App() {
                       : 'Not yet saved'}
                   </p>
                 </div>
+                {editingTask && (
+                  <button
+                    type="button"
+                    onClick={copyPromptContext}
+                    disabled={isCopying}
+                    className="mt-4 inline-flex items-center gap-2 rounded-md border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Copy aria-hidden="true" size={16} strokeWidth={2} />
+                    {isCopying ? 'Copying prompt...' : 'Copy as Prompt Context'}
+                  </button>
+                )}
               </section>
 
               <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-brand-primary/10 pt-4">
