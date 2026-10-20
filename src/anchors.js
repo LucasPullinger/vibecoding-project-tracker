@@ -5,10 +5,6 @@ export const DEFAULT_ANCHORS = [
   { id: 'documentation', label: 'Documentation', url: null },
 ];
 
-const ANCHOR_LABELS = Object.fromEntries(
-  DEFAULT_ANCHORS.map((anchor) => [anchor.id, anchor.label]),
-);
-
 export function isValidDeliverableUrl(value) {
   try {
     const url = new URL(value);
@@ -28,7 +24,7 @@ export function isValidAnchors(anchors) {
 
     const keys = Object.keys(anchor).sort();
     if (keys.join(',') !== 'id,label,url') return false;
-    if (ids.has(anchor.id) || ANCHOR_LABELS[anchor.id] !== anchor.label) return false;
+    if (ids.has(anchor.id) || typeof anchor.label !== 'string' || !anchor.label.trim()) return false;
 
     ids.add(anchor.id);
     return anchor.url === null || isValidDeliverableUrl(anchor.url);

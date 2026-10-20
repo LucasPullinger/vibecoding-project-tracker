@@ -5,13 +5,20 @@ import {
   BookOpen,
   Bug,
   Copy,
+  ChevronDown,
   ExternalLink,
   FileText,
+  Flag,
   GripVertical,
+  ListChecks,
   Monitor,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Presentation,
   Sparkles,
+  Settings,
+  SlidersHorizontal,
   Sun,
   User,
 } from 'lucide-react';
@@ -50,6 +57,13 @@ export const STAGES = [
 ];
 
 export const TEAM = ['Teammate A', 'Teammate B', 'Teammate C'];
+const UNASSIGNED = 'Unassigned';
+const DEFAULT_PROJECT = { name: 'Anchor', team: TEAM };
+const DEFAULT_WORKSPACE_TEAMS = [
+  { id: 'product', name: 'Product' },
+  { id: 'design', name: 'Design' },
+  { id: 'engineering', name: 'Engineering' },
+];
 
 const AI_TOOLS = ['Claude', 'ChatGPT', 'Cursor', 'Lovable', 'Replit', 'Other'];
 
@@ -84,6 +98,53 @@ const TASK_FIELDS = [
   'contextTool',
   'contextUpdatedAt',
 ];
+
+function isValidSubtasksByTask(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+
+  return Object.values(value).every((subtasks) => Array.isArray(subtasks) && subtasks.every((subtask) => (
+    subtask
+    && typeof subtask === 'object'
+    && typeof subtask.id === 'string'
+    && typeof subtask.title === 'string'
+    && typeof subtask.completed === 'boolean'
+  )));
+}
+
+function isValidProject(value) {
+  return value
+    && typeof value === 'object'
+    && typeof value.name === 'string'
+    && value.name.trim().length > 0
+    && Array.isArray(value.team)
+    && value.team.every((member) => typeof member === 'string' && member.trim().length > 0);
+}
+
+function isValidWorkspaceTeams(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((team) => (
+    team
+    && typeof team.id === 'string'
+    && typeof team.name === 'string'
+    && team.name.trim().length > 0
+  ));
+}
+
+function isValidBoards(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((board) => (
+    board
+    && typeof board.id === 'string'
+    && typeof board.name === 'string'
+    && board.name.trim().length > 0
+    && typeof board.teamId === 'string'
+    && (board.members === undefined || (Array.isArray(board.members) && board.members.every((member) => (
+      typeof member === 'string' && member.trim().length > 0
+    ))))
+    && Array.isArray(board.tasks)
+    && board.tasks.every(isValidTask)
+    && isValidAnchors(board.anchors)
+    && isValidSubtasksByTask(board.subtasks)
+  ));
+}
 
 const TASK_TYPE_DETAILS = {
   feature: {
@@ -134,7 +195,7 @@ function TaskTypeBadge({ type }) {
   const { label, Icon, badgeClassName } = TASK_TYPE_DETAILS[type];
 
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 font-mono text-xs font-medium ${badgeClassName}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-sm border px-2 py-0.5 font-mono text-xs font-medium ${badgeClassName}`}>
       <Icon aria-hidden="true" size={14} strokeWidth={2} />
       {label}
     </span>
@@ -142,9 +203,11 @@ function TaskTypeBadge({ type }) {
 }
 
 function AssigneeBadge({ assignee }) {
+  const isUnassigned = assignee === UNASSIGNED;
+
   return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded border border-brand-primary/20 bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
-      <User aria-hidden="true" size={14} strokeWidth={2} />
+    <span className="inline-flex max-w-full items-center gap-1 rounded-sm border border-brand-primary/20 px-2 py-0.5 text-xs font-medium text-brand-primary">
+      {!isUnassigned && <User aria-hidden="true" size={14} strokeWidth={2} />}
       <span className="truncate">{assignee}</span>
     </span>
   );
@@ -156,7 +219,7 @@ function DeadlineIndicator({ state }) {
   if (!label) return null;
 
   return (
-    <span className={`shrink-0 rounded border px-2 py-0.5 text-xs font-medium ${badgeClassName}`}>
+    <span className={`shrink-0 rounded-sm border px-2 py-0.5 text-xs font-medium ${badgeClassName}`}>
       {label}
     </span>
   );
@@ -164,11 +227,35 @@ function DeadlineIndicator({ state }) {
 
 function TaskCount({ count }) {
   return (
-    <span className="rounded-full bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
+    <span className="rounded-sm border border-brand-primary/20 px-2 py-0.5 text-xs font-medium text-brand-primary">
       <span key={count} className="inline-block animate-task-count motion-reduce:animate-none">
         {count} {count === 1 ? 'task' : 'tasks'}
       </span>
     </span>
+  );
+}
+
+function SubtaskProgress({ subtasks }) {
+  if (subtasks.length === 0) return null;
+
+  const completed = subtasks.filter((subtask) => subtask.completed).length;
+
+  return (
+    <div className="mt-4" aria-label={`${completed} of ${subtasks.length} subtasks complete`}>
+      <div className="flex items-center justify-between text-xs text-text-muted">
+        <span className="inline-flex items-center gap-1">
+          <ListChecks aria-hidden="true" size={14} strokeWidth={2} />
+          Subtasks
+        </span>
+        <span>{completed}/{subtasks.length}</span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-brand-primary/10">
+        <div
+          className="h-full rounded-full bg-brand-primary transition-[width] duration-200"
+          style={{ width: `${(completed / subtasks.length) * 100}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -178,7 +265,7 @@ function BoardColumn({ children, provided, snapshot, stage }) {
       ref={provided.innerRef}
       {...provided.droppableProps}
       aria-labelledby={`${stage.id}-heading`}
-      className={`rounded-lg border p-4 transition-colors duration-200 motion-reduce:transition-none ${
+      className={`rounded-sm border p-5 transition-colors duration-200 motion-reduce:transition-none ${
         snapshot.isDraggingOver
           ? 'border-brand-primary/40 bg-brand-primary/5'
           : 'border-brand-primary/15 bg-surface-card/50'
@@ -244,7 +331,8 @@ function isValidTask(task) {
     && typeof task.description === 'string'
     && ['feature', 'bug'].includes(task.type)
     && STAGES.some((stage) => stage.id === task.status)
-    && TEAM.includes(task.assignee)
+    && typeof task.assignee === 'string'
+    && task.assignee.trim().length > 0
     && (task.dueDate === null || isIsoDate(task.dueDate))
     && isIsoDate(task.createdDate)
     && typeof task.context === 'string'
@@ -258,10 +346,11 @@ function createEmptyForm() {
     description: '',
     type: 'feature',
     status: 'todo',
-    assignee: TEAM[0],
+    assignee: UNASSIGNED,
     dueDate: '',
     context: '',
     contextTool: '',
+    subtasks: [],
   };
 }
 
@@ -296,54 +385,146 @@ export function useLocalStorage(key, initialValue, isValidValue = () => true) {
 }
 
 export default function App() {
-  const [tasks, setTasks] = useLocalStorage(
+  const [legacyTasks] = useLocalStorage(
     'vibetracker.tasks',
     MOCK_TASKS,
     (value) => Array.isArray(value) && value.every(isValidTask),
   );
-  const [anchors, setAnchors] = useLocalStorage(
+  const [legacyAnchors] = useLocalStorage(
     'vibetracker.anchors',
     DEFAULT_ANCHORS,
     isValidAnchors,
+  );
+  // Kept separately so the fixed Task schema remains compatible with saved boards.
+  const [legacySubtasks] = useLocalStorage(
+    'vibetracker.subtasks',
+    {},
+    isValidSubtasksByTask,
+  );
+  const [teams] = useLocalStorage(
+    'vibetracker.workspace-teams',
+    DEFAULT_WORKSPACE_TEAMS,
+    isValidWorkspaceTeams,
+  );
+  const [boards, setBoards] = useLocalStorage(
+    'vibetracker.boards',
+    [{
+      id: 'board-main',
+      name: 'Main board',
+      teamId: DEFAULT_WORKSPACE_TEAMS[0].id,
+      tasks: legacyTasks,
+      anchors: legacyAnchors,
+      subtasks: legacySubtasks,
+    }],
+    isValidBoards,
+  );
+  const [activeBoardId, setActiveBoardId] = useLocalStorage(
+    'vibetracker.active-board',
+    'board-main',
+    (value) => typeof value === 'string',
   );
   const [theme, setTheme] = useLocalStorage(
     'vibetracker.theme',
     'light',
     (value) => value === 'light' || value === 'dark',
   );
+  const [isSidebarOpen, setIsSidebarOpen] = useLocalStorage(
+    'vibetracker.sidebar-open',
+    true,
+    (value) => typeof value === 'boolean',
+  );
+  const [project, setProject] = useLocalStorage(
+    'vibetracker.project',
+    DEFAULT_PROJECT,
+    isValidProject,
+  );
+  const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0];
+  const tasks = activeBoard.tasks;
+  const anchors = activeBoard.anchors;
+  const subtasksByTask = activeBoard.subtasks;
   const [editingTask, setEditingTask] = useState(null);
   const [editingAnchorId, setEditingAnchorId] = useState(null);
   const [anchorUrl, setAnchorUrl] = useState('');
+  const [anchorLabel, setAnchorLabel] = useState('');
   const [anchorError, setAnchorError] = useState('');
+  const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
+  const [isCreateBoardOpen, setIsCreateBoardOpen] = useState(false);
+  const [editingBoardId, setEditingBoardId] = useState(null);
+  const [isConfirmingBoardDelete, setIsConfirmingBoardDelete] = useState(false);
+  const [boardForm, setBoardForm] = useState({ name: '', teamId: 'product', members: [] });
+  const [boardError, setBoardError] = useState('');
+  const [projectForm, setProjectForm] = useState(DEFAULT_PROJECT);
+  const [teamMemberDraft, setTeamMemberDraft] = useState('');
+  const [projectError, setProjectError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [form, setForm] = useState(createEmptyForm);
   const [errors, setErrors] = useState({});
   const [notice, setNotice] = useState('');
+  const [undoState, setUndoState] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [filterAssignee, setFilterAssignee] = useState('all');
+  const [subtaskDraft, setSubtaskDraft] = useState('');
   const [isCopying, setIsCopying] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const titleInputRef = useRef(null);
   const assigneeSelectRef = useRef(null);
   const anchorUrlInputRef = useRef(null);
+  const projectNameInputRef = useRef(null);
+  const boardNameInputRef = useRef(null);
   const triggerRef = useRef(null);
   const isModalOpen = isCreating || editingTask !== null;
   const isDark = theme === 'dark';
+  const assignees = [UNASSIGNED, ...(activeBoard.members ?? project.team)];
+  const activeTeam = teams.find((team) => team.id === activeBoard.teamId) ?? teams[0];
+
+  function updateActiveBoard(field, value) {
+    setBoards((current) => current.map((board) => {
+      if (board.id !== activeBoard.id) return board;
+
+      return {
+        ...board,
+        [field]: typeof value === 'function' ? value(board[field]) : value,
+      };
+    }));
+  }
+
+  function setTasks(value) {
+    updateActiveBoard('tasks', value);
+  }
+
+  function setAnchors(value) {
+    updateActiveBoard('anchors', value);
+  }
+
+  function setSubtasksByTask(value) {
+    updateActiveBoard('subtasks', value);
+  }
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
 
   useEffect(() => {
-    if (!isModalOpen) return undefined;
+    if (!isModalOpen && !isProjectSettingsOpen && !isCreateBoardOpen) return undefined;
 
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') closeModal();
+      if (event.key === 'Escape') {
+        if (isCreateBoardOpen) closeBoardCreator();
+        else if (isProjectSettingsOpen) closeProjectSettings();
+        else closeModal();
+      }
     };
 
     document.addEventListener('keydown', closeOnEscape);
-    window.requestAnimationFrame(() => titleInputRef.current?.focus());
+    window.requestAnimationFrame(() => {
+      if (isCreateBoardOpen) boardNameInputRef.current?.focus();
+      else if (isProjectSettingsOpen) projectNameInputRef.current?.focus();
+      else titleInputRef.current?.focus();
+    });
 
     return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [isModalOpen]);
+  }, [isModalOpen, isProjectSettingsOpen, isCreateBoardOpen]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentTime(new Date()), 60 * 1000);
@@ -357,6 +538,17 @@ export default function App() {
     }
   }, [editingAnchorId]);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setNotice('');
+      setUndoState(null);
+    }, undoState ? 5000 : 2500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [notice, undoState]);
+
   function closeModal() {
     setEditingTask(null);
     setIsCreating(false);
@@ -364,11 +556,182 @@ export default function App() {
     window.requestAnimationFrame(() => triggerRef.current?.focus());
   }
 
+  function openProjectSettings(event) {
+    triggerRef.current = event.currentTarget;
+    setProjectForm({ name: project.name, team: [...project.team] });
+    setTeamMemberDraft('');
+    setProjectError('');
+    setIsProjectSettingsOpen(true);
+  }
+
+  function closeProjectSettings() {
+    setIsProjectSettingsOpen(false);
+    setProjectError('');
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function addTeamMember(event) {
+    event.preventDefault();
+    const member = teamMemberDraft.trim();
+
+    if (!member) return;
+    if (member === UNASSIGNED || projectForm.team.some((item) => item.toLowerCase() === member.toLowerCase())) {
+      setProjectError('Choose a unique team member name.');
+      return;
+    }
+
+    setProjectForm((current) => ({ ...current, team: [...current.team, member] }));
+    setTeamMemberDraft('');
+    setProjectError('');
+  }
+
+  function removeTeamMember(member) {
+    if (tasks.some((task) => task.assignee === member)) {
+      setProjectError(`Reassign ${member}'s tasks before removing them.`);
+      return;
+    }
+
+    setProjectForm((current) => ({
+      ...current,
+      team: current.team.filter((item) => item !== member),
+    }));
+  }
+
+  function saveProject(event) {
+    event.preventDefault();
+    const name = projectForm.name.trim();
+
+    if (!name) {
+      setProjectError('Enter a project name.');
+      projectNameInputRef.current?.focus();
+      return;
+    }
+    if (projectForm.team.length === 0) {
+      setProjectError('Add at least one team member.');
+      return;
+    }
+
+    setProject({ name, team: projectForm.team });
+    setNotice('Project settings saved.');
+    closeProjectSettings();
+  }
+
+  function openBoardCreator(teamId, event) {
+    triggerRef.current = event.currentTarget;
+    setBoardForm({ name: '', teamId, members: [...project.team] });
+    setBoardError('');
+    setEditingBoardId(null);
+    setIsConfirmingBoardDelete(false);
+    setIsCreateBoardOpen(true);
+  }
+
+  function openBoardEditor(event) {
+    triggerRef.current = event.currentTarget;
+    setBoardForm({
+      name: activeBoard.name,
+      teamId: activeBoard.teamId,
+      members: [...(activeBoard.members ?? project.team)],
+    });
+    setBoardError('');
+    setEditingBoardId(activeBoard.id);
+    setIsConfirmingBoardDelete(false);
+    setIsCreateBoardOpen(true);
+  }
+
+  function closeBoardCreator() {
+    setIsCreateBoardOpen(false);
+    setBoardError('');
+    setEditingBoardId(null);
+    setIsConfirmingBoardDelete(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function toggleBoardMember(member) {
+    const editingBoard = boards.find((board) => board.id === editingBoardId);
+    if (
+      editingBoard
+      && boardForm.members.includes(member)
+      && editingBoard.tasks.some((task) => task.assignee === member)
+    ) {
+      setBoardError(`Reassign ${member}'s tasks before removing them.`);
+      return;
+    }
+
+    setBoardForm((current) => ({
+      ...current,
+      members: current.members.includes(member)
+        ? current.members.filter((item) => item !== member)
+        : [...current.members, member],
+    }));
+  }
+
+  function saveBoard(event) {
+    event.preventDefault();
+    const name = boardForm.name.trim();
+
+    if (!name) {
+      setBoardError('Enter a board name.');
+      boardNameInputRef.current?.focus();
+      return;
+    }
+    if (boardForm.members.length === 0) {
+      setBoardError('Select at least one team member.');
+      return;
+    }
+
+    if (editingBoardId) {
+      setBoards((current) => current.map((board) => (
+        board.id === editingBoardId
+          ? { ...board, name, teamId: boardForm.teamId, members: boardForm.members }
+          : board
+      )));
+      setNotice('Board updated.');
+    } else {
+      const board = {
+        id: `board-${createTaskId()}`,
+        name,
+        teamId: boardForm.teamId,
+        members: boardForm.members,
+        tasks: [],
+        anchors: DEFAULT_ANCHORS.map((anchor) => ({ ...anchor })),
+        subtasks: {},
+      };
+
+      setBoards((current) => [...current, board]);
+      setActiveBoardId(board.id);
+      clearFilters();
+      setNotice('Board created.');
+    }
+    closeBoardCreator();
+  }
+
+  function deleteBoard() {
+    if (boards.length === 1) {
+      setBoardError('Keep at least one board in the workspace.');
+      setIsConfirmingBoardDelete(false);
+      return;
+    }
+
+    const remainingBoards = boards.filter((board) => board.id !== editingBoardId);
+    setBoards(remainingBoards);
+    setActiveBoardId(remainingBoards[0].id);
+    clearFilters();
+    setNotice('Board deleted.');
+    closeBoardCreator();
+  }
+
+  function selectBoard(boardId) {
+    setActiveBoardId(boardId);
+    clearFilters();
+    setUndoState(null);
+  }
+
   function openCreate(event) {
     triggerRef.current = event.currentTarget;
     setForm(createEmptyForm());
     setErrors({});
     setEditingTask(null);
+    setSubtaskDraft('');
     setIsCreating(true);
   }
 
@@ -383,16 +746,55 @@ export default function App() {
       dueDate: task.dueDate ?? '',
       context: task.context,
       contextTool: task.contextTool ?? '',
+      subtasks: subtasksByTask[task.id] ?? [],
     });
     setErrors({});
     setIsCreating(false);
     setEditingTask(task);
+    setSubtaskDraft('');
   }
 
   function updateForm(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: value }));
     if (errors[name]) setErrors((current) => ({ ...current, [name]: '' }));
+  }
+
+  function addSubtask(event) {
+    event.preventDefault();
+    const title = subtaskDraft.trim();
+    if (!title) return;
+
+    setForm((current) => ({
+      ...current,
+      subtasks: [...current.subtasks, { id: createTaskId(), title, completed: false }],
+    }));
+    setSubtaskDraft('');
+  }
+
+  function toggleSubtask(subtaskId) {
+    setForm((current) => ({
+      ...current,
+      subtasks: current.subtasks.map((subtask) => (
+        subtask.id === subtaskId ? { ...subtask, completed: !subtask.completed } : subtask
+      )),
+    }));
+  }
+
+  function removeSubtask(subtaskId) {
+    setForm((current) => ({
+      ...current,
+      subtasks: current.subtasks.filter((subtask) => subtask.id !== subtaskId),
+    }));
+  }
+
+  function saveSubtasks(taskId, subtasks) {
+    setSubtasksByTask((current) => {
+      const next = { ...current };
+      if (subtasks.length === 0) delete next[taskId];
+      else next[taskId] = subtasks;
+      return next;
+    });
   }
 
   function saveTask(event) {
@@ -404,8 +806,8 @@ export default function App() {
       return;
     }
 
-    if (!TEAM.includes(form.assignee)) {
-      setErrors({ assignee: 'Select a team member.' });
+    if (!assignees.includes(form.assignee)) {
+      setErrors({ assignee: 'Select an assignee.' });
       assigneeSelectRef.current?.focus();
       return;
     }
@@ -419,6 +821,7 @@ export default function App() {
       dueDate: form.dueDate || null,
     };
     const contextTool = form.contextTool || null;
+    setUndoState(null);
 
     if (editingTask) {
       const contextChanged = form.context !== editingTask.context
@@ -434,16 +837,18 @@ export default function App() {
       setTasks((current) => current.map((task) => (
         task.id === editingTask.id ? { ...task, ...editableFields, ...contextFields } : task
       )));
+      saveSubtasks(editingTask.id, form.subtasks);
       setNotice(
         editingTask.assignee === form.assignee
           ? 'Task updated.'
-          : `Assigned to ${form.assignee}.`,
+          : form.assignee === UNASSIGNED ? 'Task unassigned.' : `Assigned to ${form.assignee}.`,
       );
     } else {
+      const taskId = createTaskId();
       setTasks((current) => [
         ...current,
         {
-          id: createTaskId(),
+          id: taskId,
           ...editableFields,
           createdDate: getLocalDate(),
           context: form.context,
@@ -451,6 +856,7 @@ export default function App() {
           contextUpdatedAt: form.context || contextTool ? new Date().toISOString() : null,
         },
       ]);
+      saveSubtasks(taskId, form.subtasks);
       setNotice('Task created.');
     }
 
@@ -462,7 +868,13 @@ export default function App() {
       return;
     }
 
+    setUndoState({ tasks, subtasksByTask });
     setTasks((current) => current.filter((task) => task.id !== editingTask.id));
+    setSubtasksByTask((current) => {
+      const next = { ...current };
+      delete next[editingTask.id];
+      return next;
+    });
     setNotice('Task deleted.');
     closeModal();
   }
@@ -470,25 +882,46 @@ export default function App() {
   function handleDragEnd(result) {
     const reorderedTasks = moveTask(tasks, result.source, result.destination, STAGES);
 
-    if (reorderedTasks !== tasks) setTasks(reorderedTasks);
+    if (reorderedTasks !== tasks) {
+      setUndoState({ tasks, subtasksByTask });
+      setTasks(reorderedTasks);
+      setNotice('Task moved.');
+    }
+  }
+
+  function undoLastAction() {
+    if (!undoState) return;
+
+    setTasks(undoState.tasks);
+    setSubtasksByTask(undoState.subtasksByTask);
+    setUndoState(null);
+    setNotice('Change undone.');
   }
 
   function openAnchorEditor(anchor) {
     setEditingAnchorId(anchor.id);
     setAnchorUrl(anchor.url ?? '');
+    setAnchorLabel(anchor.label);
     setAnchorError('');
   }
 
   function closeAnchorEditor() {
     setEditingAnchorId(null);
     setAnchorUrl('');
+    setAnchorLabel('');
     setAnchorError('');
   }
 
   function saveAnchor(event, anchor) {
     event.preventDefault();
 
+    const label = anchorLabel.trim();
     const url = anchorUrl.trim();
+    if (!label) {
+      setAnchorError('Enter a deliverable name.');
+      return;
+    }
+
     if (url && !isValidDeliverableUrl(url)) {
       setAnchorError('Please enter a valid URL.');
       anchorUrlInputRef.current?.focus();
@@ -496,9 +929,9 @@ export default function App() {
     }
 
     setAnchors((current) => current.map((item) => (
-      item.id === anchor.id ? { ...item, url: url || null } : item
+      item.id === anchor.id ? { ...item, label, url: url || null } : item
     )));
-    setNotice(url ? 'Deliverable link saved.' : 'Deliverable link removed.');
+    setNotice('Deliverable saved.');
     closeAnchorEditor();
   }
 
@@ -537,24 +970,63 @@ export default function App() {
     }
   }
 
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const hasActiveFilters = Boolean(normalizedSearch || filterType !== 'all' || filterAssignee !== 'all');
+  const visibleTasks = tasks.filter((task) => {
+    const matchesSearch = !normalizedSearch || [task.title, task.description, task.assignee]
+      .some((value) => value.toLowerCase().includes(normalizedSearch));
+
+    return matchesSearch
+      && (filterType === 'all' || task.type === filterType)
+      && (filterAssignee === 'all' || task.assignee === filterAssignee);
+  });
+
+  function clearFilters() {
+    setSearchQuery('');
+    setFilterType('all');
+    setFilterAssignee('all');
+  }
+
   return (
     <div className={`${isDark ? 'dark ' : ''}min-h-screen bg-surface-page transition-colors duration-200`}>
       <header className="mb-8 border-b border-brand-primary/15 bg-surface-card shadow-sm">
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <a href="#board" className="flex items-center gap-3 text-text-primary">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-brand-primary text-surface-card shadow-sm">
+          <span className="flex size-9 items-center justify-center rounded-md bg-brand-primary text-surface-card shadow-sm">
             <Anchor aria-hidden="true" size={20} strokeWidth={2.25} />
           </span>
-          <span className="text-lg font-semibold tracking-tight">Anchor</span>
+          <span className="text-lg font-semibold tracking-tight">{project.name}</span>
         </a>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setIsSidebarOpen((current) => !current)}
+            aria-label={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            title={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            className="rounded-sm border border-brand-primary/20 bg-surface-card p-2 text-brand-primary shadow-sm transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+          >
+            {isSidebarOpen ? (
+              <PanelLeftClose aria-hidden="true" size={18} strokeWidth={2} />
+            ) : (
+              <PanelLeftOpen aria-hidden="true" size={18} strokeWidth={2} />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={openProjectSettings}
+            aria-label="Open project settings"
+            title="Project settings"
+            className="rounded-sm border border-brand-primary/20 bg-surface-card p-2 text-brand-primary shadow-sm transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+          >
+            <Settings aria-hidden="true" size={18} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
             aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="rounded-md border border-brand-primary/20 bg-surface-card p-2 text-brand-primary shadow-sm transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+            className="rounded-sm border border-brand-primary/20 bg-surface-card p-2 text-brand-primary shadow-sm transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
           >
             {isDark ? (
               <Sun aria-hidden="true" size={18} strokeWidth={2} />
@@ -566,7 +1038,7 @@ export default function App() {
             ref={triggerRef}
             type="button"
             onClick={openCreate}
-            className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+            className="rounded-sm bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
           >
             + New task
           </button>
@@ -577,22 +1049,130 @@ export default function App() {
       <div className="px-4 pb-6 sm:px-6 lg:px-8">
 
       {notice && (
-        <p className="fixed right-4 top-4 z-20 rounded-md border border-brand-primary/20 bg-surface-card px-4 py-3 text-sm text-brand-primary shadow-md" role="status">
-          {notice}
-        </p>
+        <div className="fixed bottom-4 right-4 z-20 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-sm border border-brand-primary/20 bg-surface-card px-4 py-3 text-sm text-brand-primary shadow-md" role="status">
+          <span>{notice}</span>
+          {undoState && (
+            <button
+              type="button"
+              onClick={undoLastAction}
+              className="rounded px-2 py-1 font-medium text-text-primary hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+            >
+              Undo
+            </button>
+          )}
+        </div>
       )}
 
-      <section id="deliverables" className="mx-auto mb-8 max-w-screen-2xl scroll-mt-6" aria-labelledby="deliverables-heading">
-        <div className="mb-4">
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
-            Project outcomes
-          </p>
-          <h2 id="deliverables-heading" className="mt-1 text-base font-semibold uppercase tracking-wide text-text-primary">
-            Project Deliverables
-          </h2>
-        </div>
+      <div className={`mb-4 ${isSidebarOpen ? 'lg:hidden' : ''}`}>
+        <label className="block text-xs font-medium uppercase tracking-[0.16em] text-text-muted" htmlFor="mobile-board">
+          Board
+        </label>
+        <select
+          id="mobile-board"
+          value={activeBoard.id}
+          onChange={(event) => selectBoard(event.target.value)}
+          className="mt-1.5 w-full rounded-sm border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+        >
+          {boards.map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}
+        </select>
+        <button
+          type="button"
+          onClick={(event) => openBoardCreator(activeTeam.id, event)}
+          className="mt-2 rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+        >
+          + New board
+        </button>
+        <button
+          type="button"
+          onClick={openBoardEditor}
+          className="mt-2 rounded-sm px-3 py-2 text-sm font-medium text-text-muted hover:bg-brand-primary/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+        >
+          Edit board
+        </button>
+      </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mx-auto flex max-w-screen-2xl gap-8">
+        {isSidebarOpen && (
+        <aside className="hidden w-52 shrink-0 lg:block" aria-label="Workspace navigation">
+          <div className="sticky top-6 border-r border-brand-primary/15 pr-5">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Your teams</p>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-text-primary">Viewing {activeTeam.name}</p>
+              <button
+                type="button"
+                onClick={openBoardEditor}
+                className="rounded-sm px-2 py-1 text-xs font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+              >
+                Edit board
+              </button>
+            </div>
+            <div className="mt-5 space-y-5">
+              {teams.map((team) => {
+                const teamBoards = boards.filter((board) => board.teamId === team.id);
+
+                return (
+                  <section key={team.id} aria-labelledby={`team-${team.id}`}>
+                    <h2 id={`team-${team.id}`} className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                      {team.name}
+                    </h2>
+                    <div className="mt-2 space-y-1">
+                      {teamBoards.map((board) => (
+                        <button
+                          key={board.id}
+                          type="button"
+                          onClick={() => selectBoard(board.id)}
+                          className={`flex w-full items-center gap-2 border-l-2 px-2 py-1.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${
+                            board.id === activeBoard.id
+                              ? 'border-brand-primary bg-brand-primary/10 font-medium text-text-primary'
+                              : 'border-transparent text-text-muted hover:bg-brand-primary/5 hover:text-text-primary'
+                          }`}
+                        >
+                          <span className="size-1.5 shrink-0 bg-current" />
+                          <span className="truncate">{board.name}</span>
+                        </button>
+                      ))}
+                      {teamBoards.length === 0 && (
+                        <button
+                          type="button"
+                          onClick={(event) => openBoardCreator(team.id, event)}
+                          className="px-2 text-xs font-medium text-brand-primary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                        >
+                          Create a board
+                        </button>
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={(event) => openBoardCreator(activeTeam.id, event)}
+              className="mt-6 w-full rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+            >
+              + New board
+            </button>
+          </div>
+        </aside>
+        )}
+
+        <div className="min-w-0 flex-1">
+      <details id="deliverables" className="group mb-3 rounded-sm border border-l-2 border-l-type-feature/60 border-brand-primary/15 bg-surface-card scroll-mt-6" aria-labelledby="deliverables-heading">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-3 py-2.5 hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-type-feature/10 text-type-feature">
+              <Flag aria-hidden="true" size={15} strokeWidth={2} />
+            </span>
+            <h2 id="deliverables-heading" className="truncate text-sm font-semibold text-text-primary">
+              Deliverables
+            </h2>
+            <span className="hidden text-xs text-text-muted sm:inline">{anchors.length} milestones</span>
+          </div>
+          <ChevronDown aria-hidden="true" size={20} className="text-text-muted transition-transform duration-200 group-open:rotate-180" />
+        </summary>
+
+        <div className="border-t border-brand-primary/15 p-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {anchors.map((anchor) => {
             const Icon = ANCHOR_DETAILS[anchor.id];
             const isEditing = editingAnchorId === anchor.id;
@@ -600,7 +1180,7 @@ export default function App() {
             return (
               <article
                 key={anchor.id}
-                className="rounded-lg border border-brand-primary/15 bg-surface-card p-4 shadow-sm"
+                className="rounded-md border border-brand-primary/15 bg-surface-card p-4 shadow-sm"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2 text-brand-primary">
@@ -618,7 +1198,20 @@ export default function App() {
 
                 {isEditing ? (
                   <form className="mt-4" onSubmit={(event) => saveAnchor(event, anchor)}>
-                    <label htmlFor={`anchor-url-${anchor.id}`} className="block text-sm font-medium text-text-primary">
+                    <label htmlFor={`anchor-label-${anchor.id}`} className="block text-sm font-medium text-text-primary">
+                      Deliverable name
+                    </label>
+                    <input
+                      id={`anchor-label-${anchor.id}`}
+                      type="text"
+                      value={anchorLabel}
+                      onChange={(event) => {
+                        setAnchorLabel(event.target.value);
+                        if (anchorError) setAnchorError('');
+                      }}
+                      className="mt-1.5 w-full rounded-md border border-brand-primary/20 px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    />
+                    <label htmlFor={`anchor-url-${anchor.id}`} className="mt-4 block text-sm font-medium text-text-primary">
                       Deliverable URL
                     </label>
                     <input
@@ -690,14 +1283,86 @@ export default function App() {
               </article>
             );
           })}
+          </div>
         </div>
-      </section>
+      </details>
+
+      <details className="group rounded-sm border border-l-2 border-l-due-warning/60 border-brand-primary/15 bg-surface-card" aria-labelledby="filter-heading">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-3 py-2.5 hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-due-warning/10 text-due-warning">
+              <SlidersHorizontal aria-hidden="true" size={15} strokeWidth={2} />
+            </span>
+            <h2 id="filter-heading" className="truncate text-sm font-semibold text-text-primary">Filter tasks</h2>
+            <span className="hidden text-xs text-text-muted sm:inline">
+              {hasActiveFilters ? `${visibleTasks.length} of ${tasks.length} shown` : 'Search and filter'}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            {hasActiveFilters && <span className="text-xs font-medium text-due-warning">Active</span>}
+            <ChevronDown aria-hidden="true" size={20} className="text-text-muted transition-transform duration-200 group-open:rotate-180" />
+          </div>
+        </summary>
+        <div className="border-t border-brand-primary/15 p-4">
+          {hasActiveFilters && (
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="sm:col-span-1">
+            <span className="sr-only">Search tasks</span>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search tasks"
+              className="w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+            />
+          </label>
+          <label>
+            <span className="sr-only">Filter by type</span>
+            <select
+              value={filterType}
+              onChange={(event) => setFilterType(event.target.value)}
+              className="w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+            >
+              <option value="all">All types</option>
+              <option value="feature">Features</option>
+              <option value="bug">Bugs</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">Filter by assignee</span>
+            <select
+              value={filterAssignee}
+              onChange={(event) => setFilterAssignee(event.target.value)}
+              className="w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+            >
+              <option value="all">All assignees</option>
+              {assignees.map((member) => <option key={member} value={member}>{member}</option>)}
+            </select>
+          </label>
+        </div>
+        {hasActiveFilters && (
+          <p className="mt-3 text-xs text-text-muted">
+            Showing {visibleTasks.length} of {tasks.length} tasks. Clear filters to move tasks.
+          </p>
+        )}
+        </div>
+      </details>
 
       <DragDropContext onDragEnd={handleDragEnd}>
-        <main id="board" className="mx-auto max-w-screen-2xl scroll-mt-6" aria-label="Kanban board">
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <main id="board" className="mt-8 scroll-mt-6" aria-label="Kanban board">
+          <div className={`grid gap-6 md:grid-cols-2 ${isSidebarOpen ? '2xl:grid-cols-4' : 'xl:grid-cols-4'}`}>
             {STAGES.map((stage) => {
-              const stageTasks = tasks.filter((task) => task.status === stage.id);
+              const stageTasks = visibleTasks.filter((task) => task.status === stage.id);
 
               return (
                 <Droppable key={stage.id} droppableId={stage.id}>
@@ -727,13 +1392,14 @@ export default function App() {
                               draggableId={task.id}
                               index={index}
                               disableInteractiveElementBlocking
+                              isDragDisabled={hasActiveFilters}
                             >
                               {(dragProvided, dragSnapshot) => (
                                 <div
                                   ref={dragProvided.innerRef}
                                   {...dragProvided.draggableProps}
                                   {...dragProvided.dragHandleProps}
-                                  aria-label={`Drag or edit ${task.title}`}
+                                  aria-label={`${hasActiveFilters ? 'Edit' : 'Drag or edit'} ${task.title}`}
                                   onKeyDown={(event) => {
                                     dragProvided.dragHandleProps?.onKeyDown?.(event);
                                     if (!event.defaultPrevented && event.key === 'Enter') {
@@ -756,8 +1422,8 @@ export default function App() {
                                     } ${deadlineDetails.cardClassName} ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
                                   >
                                     <div className="p-4 pr-12">
-                                      <span className="flex items-start justify-between gap-3">
-                                        <span className="min-w-0 text-sm font-medium leading-5 text-text-primary">
+                                      <span className="flex flex-wrap items-start gap-2">
+                                        <span className="min-w-0 flex-1 text-sm font-medium leading-5 text-text-primary">
                                           {task.title}
                                         </span>
                                         <TaskTypeBadge type={task.type} />
@@ -765,9 +1431,10 @@ export default function App() {
                                       <span className="mt-2 block text-sm leading-5 text-text-muted">
                                         {task.description}
                                       </span>
-                                      <span className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
+                                      <SubtaskProgress subtasks={subtasksByTask[task.id] ?? []} />
+                                      <span className="mt-4 flex flex-col items-start gap-3 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
                                         <AssigneeBadge assignee={task.assignee} />
-                                        <span className="flex flex-wrap items-center justify-end gap-2">
+                                        <span className="flex flex-wrap items-center gap-2">
                                           <DeadlineIndicator state={deadlineState} />
                                           <span className="shrink-0">
                                             Due{' '}
@@ -794,8 +1461,8 @@ export default function App() {
                         })}
                         {provided.placeholder}
                         {stageTasks.length === 0 && !snapshot.isDraggingOver && (
-                          <p className="animate-empty-state rounded-md border border-dashed border-brand-primary/20 px-3 py-6 text-center text-sm text-text-muted motion-reduce:animate-none">
-                            No tasks in this stage.
+                          <p className="animate-empty-state rounded-sm border border-dashed border-brand-primary/20 px-3 py-6 text-center text-sm text-text-muted motion-reduce:animate-none">
+                            {hasActiveFilters ? 'No matching tasks.' : 'No tasks in this stage.'}
                           </p>
                         )}
                       </div>
@@ -807,10 +1474,11 @@ export default function App() {
           </div>
         </main>
       </DragDropContext>
+        </div>
+      </div>
 
       <footer className="mx-auto mt-8 flex max-w-screen-2xl items-center justify-between gap-4 border-t border-brand-primary/15 py-5 text-sm text-text-muted">
-        <span className="font-medium text-text-primary">Anchor</span>
-        <span>Keep the work moving.</span>
+        <span className="font-medium text-text-primary">{project.name}</span>
       </footer>
       </div>
 
@@ -912,11 +1580,13 @@ export default function App() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="assignee" className="block text-sm font-medium text-text-primary">
-                      {editingTask ? 'Hand off to...' : 'Assignee'}
+                      Assignee
                     </label>
                     {editingTask && (
                       <p id="assignee-help" className="mt-1 text-xs text-text-muted">
-                        Currently assigned to {editingTask.assignee}.
+                        {editingTask.assignee === UNASSIGNED
+                          ? 'Currently unassigned.'
+                          : `Currently assigned to ${editingTask.assignee}.`}
                       </p>
                     )}
                     <select
@@ -929,7 +1599,7 @@ export default function App() {
                       aria-describedby={editingTask ? 'assignee-help' : undefined}
                       className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
                     >
-                      {TEAM.map((member) => <option key={member} value={member}>{member}</option>)}
+                      {assignees.map((member) => <option key={member} value={member}>{member}</option>)}
                     </select>
                     {errors.assignee && (
                       <p className="mt-1.5 text-sm text-type-bug" role="alert">
@@ -951,6 +1621,68 @@ export default function App() {
                     />
                   </div>
                 </div>
+
+                <section aria-labelledby="subtasks-heading" className="rounded-md border border-brand-primary/15 bg-surface-page/60 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Break it down</p>
+                      <h3 id="subtasks-heading" className="mt-1 text-base font-semibold text-text-primary">Subtasks</h3>
+                    </div>
+                    {form.subtasks.length > 0 && <SubtaskProgress subtasks={form.subtasks} />}
+                  </div>
+
+                  {form.subtasks.length > 0 && (
+                    <ul className="mt-4 space-y-2">
+                      {form.subtasks.map((subtask) => (
+                        <li key={subtask.id} className="flex items-center gap-3 rounded-md bg-surface-card px-3 py-2">
+                          <input
+                            id={`subtask-${subtask.id}`}
+                            type="checkbox"
+                            checked={subtask.completed}
+                            onChange={() => toggleSubtask(subtask.id)}
+                            className="size-4 accent-current"
+                          />
+                          <label
+                            htmlFor={`subtask-${subtask.id}`}
+                            className={`min-w-0 flex-1 text-sm ${subtask.completed ? 'text-text-muted line-through' : 'text-text-primary'}`}
+                          >
+                            {subtask.title}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removeSubtask(subtask.id)}
+                            className="rounded px-2 py-1 text-xs font-medium text-text-muted hover:bg-brand-primary/10 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="mt-4 flex gap-2">
+                    <label className="min-w-0 flex-1">
+                      <span className="sr-only">New subtask</span>
+                      <input
+                        type="text"
+                        value={subtaskDraft}
+                        onChange={(event) => setSubtaskDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') addSubtask(event);
+                        }}
+                        placeholder="Add a subtask"
+                        className="w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={addSubtask}
+                      className="shrink-0 rounded-md border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </section>
               </fieldset>
 
               <section
@@ -1040,6 +1772,229 @@ export default function App() {
                   >
                     {editingTask ? 'Save changes' : 'Create task'}
                   </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {isProjectSettingsOpen && (
+        <div
+          className="fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeProjectSettings();
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-settings-title"
+            className="w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl"
+          >
+            <div className="mb-6">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
+              <h2 id="project-settings-title" className="mt-1 text-xl font-semibold text-text-primary">Project settings</h2>
+              <p className="mt-2 text-sm text-text-muted">Set the project name and the people who can be assigned work.</p>
+            </div>
+
+            <form onSubmit={saveProject}>
+              <div>
+                <label htmlFor="project-name" className="block text-sm font-medium text-text-primary">Project name</label>
+                <input
+                  ref={projectNameInputRef}
+                  id="project-name"
+                  type="text"
+                  value={projectForm.name}
+                  onChange={(event) => {
+                    setProjectForm((current) => ({ ...current, name: event.target.value }));
+                    if (projectError) setProjectError('');
+                  }}
+                  className="mt-1.5 w-full rounded-md border border-brand-primary/20 px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                />
+              </div>
+
+              <section className="mt-6 rounded-md border border-brand-primary/15 bg-surface-page/60 p-4" aria-labelledby="team-heading">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">People</p>
+                  <h3 id="team-heading" className="mt-1 text-base font-semibold text-text-primary">Team members</h3>
+                </div>
+
+                <ul className="mt-4 space-y-2">
+                  {projectForm.team.map((member) => (
+                    <li key={member} className="flex items-center justify-between gap-3 border-b border-brand-primary/10 pb-2 text-sm text-text-primary last:border-0 last:pb-0">
+                      <span>{member}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeTeamMember(member)}
+                        className="rounded-sm px-2 py-1 text-xs font-medium text-text-muted hover:bg-brand-primary/10 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-4 flex gap-2">
+                  <label className="min-w-0 flex-1">
+                    <span className="sr-only">New team member</span>
+                    <input
+                      type="text"
+                      value={teamMemberDraft}
+                      onChange={(event) => {
+                        setTeamMemberDraft(event.target.value);
+                        if (projectError) setProjectError('');
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') addTeamMember(event);
+                      }}
+                      placeholder="Add a team member"
+                      className="w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addTeamMember}
+                    className="rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                  >
+                    Add
+                  </button>
+                </div>
+              </section>
+
+              <p className="mt-4 text-xs text-text-muted">Rename individual milestones from the Deliverables menu.</p>
+              {projectError && <p className="mt-3 text-sm text-type-bug" role="alert">{projectError}</p>}
+
+              <div className="mt-6 flex justify-end gap-3 border-t border-brand-primary/10 pt-4">
+                <button
+                  type="button"
+                  onClick={closeProjectSettings}
+                  className="rounded-md border border-brand-primary/20 px-4 py-2 text-sm font-medium text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+                >
+                  Save settings
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {isCreateBoardOpen && (
+        <div
+          className="fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeBoardCreator();
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-board-title"
+            className="w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl"
+          >
+            <div className="mb-6">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
+              <h2 id="create-board-title" className="mt-1 text-xl font-semibold text-text-primary">
+                {editingBoardId ? 'Edit board' : 'Create board'}
+              </h2>
+              <p className="mt-2 text-sm text-text-muted">Choose the team and people who will work on this board.</p>
+            </div>
+
+            <form onSubmit={saveBoard}>
+              <div>
+                <label htmlFor="board-name" className="block text-sm font-medium text-text-primary">Board name</label>
+                <input
+                  ref={boardNameInputRef}
+                  id="board-name"
+                  type="text"
+                  value={boardForm.name}
+                  onChange={(event) => {
+                    setBoardForm((current) => ({ ...current, name: event.target.value }));
+                    if (boardError) setBoardError('');
+                  }}
+                  placeholder="e.g. Website launch"
+                  className="mt-1.5 w-full rounded-md border border-brand-primary/20 px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                />
+              </div>
+
+              <div className="mt-5">
+                <label htmlFor="board-team" className="block text-sm font-medium text-text-primary">Team</label>
+                <select
+                  id="board-team"
+                  value={boardForm.teamId}
+                  onChange={(event) => {
+                    setBoardForm((current) => ({ ...current, teamId: event.target.value }));
+                    if (boardError) setBoardError('');
+                  }}
+                  className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                >
+                  {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                </select>
+              </div>
+
+              <fieldset className="mt-6 rounded-md border border-brand-primary/15 bg-surface-page/60 p-4">
+                <legend className="px-1 text-sm font-medium text-text-primary">Board members</legend>
+                <p className="mt-1 text-xs text-text-muted">Only selected people can be assigned tasks on this board.</p>
+                <div className="mt-4 space-y-2">
+                  {project.team.map((member) => (
+                    <label key={member} className="flex cursor-pointer items-center gap-3 rounded-sm bg-surface-card px-3 py-2 text-sm text-text-primary">
+                      <input
+                        type="checkbox"
+                        checked={boardForm.members.includes(member)}
+                        onChange={() => toggleBoardMember(member)}
+                        className="size-4 accent-current"
+                      />
+                      {member}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              {boardError && <p className="mt-3 text-sm text-type-bug" role="alert">{boardError}</p>}
+
+              <div className="mt-6 flex items-center justify-between gap-3 border-t border-brand-primary/10 pt-4">
+                {editingBoardId ? (
+                  isConfirmingBoardDelete ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-type-bug">Delete this board?</span>
+                      <button
+                        type="button"
+                        onClick={deleteBoard}
+                        className="rounded-sm bg-type-bug px-3 py-2 text-xs font-medium text-surface-card focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingBoardDelete(true)}
+                      className="rounded-sm px-3 py-2 text-sm font-medium text-type-bug hover:bg-type-bug/10 focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                    >
+                      Delete board
+                    </button>
+                  )
+                ) : <span />}
+                <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={closeBoardCreator}
+                  className="rounded-md border border-brand-primary/20 px-4 py-2 text-sm font-medium text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+                >
+                  {editingBoardId ? 'Save changes' : 'Create board'}
+                </button>
                 </div>
               </div>
             </form>
