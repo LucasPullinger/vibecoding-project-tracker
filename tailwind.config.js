@@ -9,26 +9,26 @@ export default {
       },
       colors: {
         brand: {
-          primary: '#245C4F',
-          accent: '#934A2F',
+          primary: 'rgb(var(--color-brand-primary) / <alpha-value>)',
+          accent: 'rgb(var(--color-brand-accent) / <alpha-value>)',
         },
         surface: {
-          page: '#F7F6F2',
-          card: '#FFFFFF',
+          page: 'rgb(var(--color-surface-page) / <alpha-value>)',
+          card: 'rgb(var(--color-surface-card) / <alpha-value>)',
         },
         text: {
-          primary: '#1D2926',
-          muted: '#53615C',
+          primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
+          muted: 'rgb(var(--color-text-muted) / <alpha-value>)',
         },
         type: {
-          feature: '#6F42A1',
-          bug: '#B42318',
+          feature: 'rgb(var(--color-type-feature) / <alpha-value>)',
+          bug: 'rgb(var(--color-type-bug) / <alpha-value>)',
         },
         due: {
-          safe: '#246B53',
-          warning: '#91600B',
-          overdue: '#B42318',
-          neutral: '#667085',
+          safe: 'rgb(var(--color-due-safe) / <alpha-value>)',
+          warning: 'rgb(var(--color-due-warning) / <alpha-value>)',
+          overdue: 'rgb(var(--color-due-overdue) / <alpha-value>)',
+          neutral: 'rgb(var(--color-due-neutral) / <alpha-value>)',
         },
       },
     },

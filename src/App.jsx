@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
+import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import {
+  Anchor,
   BookOpen,
   Bug,
   Copy,
   ExternalLink,
   FileText,
+  GripVertical,
   Monitor,
+  Moon,
   Presentation,
   Sparkles,
+  Sun,
   User,
 } from 'lucide-react';
 import {
@@ -18,27 +23,7 @@ import {
 import { getDeadlineState } from './deadline';
 import { MOCK_TASKS } from './mockTasks';
 import { formatTaskPrompt } from './prompt';
-
-/**
- * Vibecoding Project Tracker — starter scaffold.
- *
- * This file is intentionally almost empty. The boilerplate (Vite, React,
- * Tailwind) is configured for you, plus a few shared constants and a
- * localStorage helper. Everything visible on screen, you build.
- *
- * Where to start (build sequence in Phase 3):
- *   - M4  data-model    : render the four columns and the task cards below.
- *   - M5  crud-modal    : add the "+" button modal and the edit-on-click modal.
- *   - M6  tag-style     : feature vs. bug color coding (uses DESIGN.md §2 colors).
- *   - M7  task-owner    : assignee badge + "Hand off to..." dropdown.
- *   - M8  due-tint      : color cards by due date (uses DESIGN.md §2 due-state colors).
- *   - M9  context       : a curated Context briefing field on the modal.
- *   - M10 copy-prompt   : a "Copy as Prompt Context" button that serializes the task + context.
- *   - M11 anchors       : the Anchor Board above the Kanban.
- *   - M12 secret-sauce  : the one open-ended thing that makes your tracker yours.
- *
- * Search the file for `TODO M<n>` to find the right hook for each milestone.
- */
+import { moveTask } from './taskOrder';
 
 /**
  * @typedef {Object} Task
@@ -64,8 +49,6 @@ export const STAGES = [
   { id: 'done',        label: 'Done' },
 ];
 
-// Replace these placeholders with the three names from PRD §8 before M4.
-// They become the only valid values for `Task.assignee`.
 export const TEAM = ['Teammate A', 'Teammate B', 'Teammate C'];
 
 const AI_TOOLS = ['Claude', 'ChatGPT', 'Cursor', 'Lovable', 'Replit', 'Other'];
@@ -176,6 +159,33 @@ function DeadlineIndicator({ state }) {
     <span className={`shrink-0 rounded border px-2 py-0.5 text-xs font-medium ${badgeClassName}`}>
       {label}
     </span>
+  );
+}
+
+function TaskCount({ count }) {
+  return (
+    <span className="rounded-full bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
+      <span key={count} className="inline-block animate-task-count motion-reduce:animate-none">
+        {count} {count === 1 ? 'task' : 'tasks'}
+      </span>
+    </span>
+  );
+}
+
+function BoardColumn({ children, provided, snapshot, stage }) {
+  return (
+    <section
+      ref={provided.innerRef}
+      {...provided.droppableProps}
+      aria-labelledby={`${stage.id}-heading`}
+      className={`rounded-lg border p-4 transition-colors duration-200 motion-reduce:transition-none ${
+        snapshot.isDraggingOver
+          ? 'border-brand-primary/40 bg-brand-primary/5'
+          : 'border-brand-primary/15 bg-surface-card/50'
+      }`}
+    >
+      {children}
+    </section>
   );
 }
 
@@ -296,6 +306,11 @@ export default function App() {
     DEFAULT_ANCHORS,
     isValidAnchors,
   );
+  const [theme, setTheme] = useLocalStorage(
+    'vibetracker.theme',
+    'light',
+    (value) => value === 'light' || value === 'dark',
+  );
   const [editingTask, setEditingTask] = useState(null);
   const [editingAnchorId, setEditingAnchorId] = useState(null);
   const [anchorUrl, setAnchorUrl] = useState('');
@@ -311,6 +326,11 @@ export default function App() {
   const anchorUrlInputRef = useRef(null);
   const triggerRef = useRef(null);
   const isModalOpen = isCreating || editingTask !== null;
+  const isDark = theme === 'dark';
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
 
   useEffect(() => {
     if (!isModalOpen) return undefined;
@@ -447,6 +467,12 @@ export default function App() {
     closeModal();
   }
 
+  function handleDragEnd(result) {
+    const reorderedTasks = moveTask(tasks, result.source, result.destination, STAGES);
+
+    if (reorderedTasks !== tasks) setTasks(reorderedTasks);
+  }
+
   function openAnchorEditor(anchor) {
     setEditingAnchorId(anchor.id);
     setAnchorUrl(anchor.url ?? '');
@@ -512,25 +538,43 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-page px-4 py-6 sm:px-6 lg:px-8">
-      <header className="mx-auto mb-8 flex max-w-screen-2xl items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
-            Vibecoding project tracker
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-brand-primary">
-            Anchor
-          </h1>
+    <div className={`${isDark ? 'dark ' : ''}min-h-screen bg-surface-page transition-colors duration-200`}>
+      <header className="mb-8 border-b border-brand-primary/15 bg-surface-card shadow-sm">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <a href="#board" className="flex items-center gap-3 text-text-primary">
+          <span className="flex size-9 items-center justify-center rounded-lg bg-brand-primary text-surface-card shadow-sm">
+            <Anchor aria-hidden="true" size={20} strokeWidth={2.25} />
+          </span>
+          <span className="text-lg font-semibold tracking-tight">Anchor</span>
+        </a>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="rounded-md border border-brand-primary/20 bg-surface-card p-2 text-brand-primary shadow-sm transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+          >
+            {isDark ? (
+              <Sun aria-hidden="true" size={18} strokeWidth={2} />
+            ) : (
+              <Moon aria-hidden="true" size={18} strokeWidth={2} />
+            )}
+          </button>
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={openCreate}
+            className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+          >
+            + New task
+          </button>
         </div>
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={openCreate}
-          className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
-        >
-          + New task
-        </button>
+        </div>
       </header>
+
+      <div className="px-4 pb-6 sm:px-6 lg:px-8">
 
       {notice && (
         <p className="fixed right-4 top-4 z-20 rounded-md border border-brand-primary/20 bg-surface-card px-4 py-3 text-sm text-brand-primary shadow-md" role="status">
@@ -538,7 +582,7 @@ export default function App() {
         </p>
       )}
 
-      <section className="mx-auto mb-8 max-w-screen-2xl" aria-labelledby="deliverables-heading">
+      <section id="deliverables" className="mx-auto mb-8 max-w-screen-2xl scroll-mt-6" aria-labelledby="deliverables-heading">
         <div className="mb-4">
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">
             Project outcomes
@@ -649,82 +693,126 @@ export default function App() {
         </div>
       </section>
 
-      <main className="mx-auto max-w-screen-2xl" aria-label="Kanban board">
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {STAGES.map((stage) => {
-            const stageTasks = tasks.filter((task) => task.status === stage.id);
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <main id="board" className="mx-auto max-w-screen-2xl scroll-mt-6" aria-label="Kanban board">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {STAGES.map((stage) => {
+              const stageTasks = tasks.filter((task) => task.status === stage.id);
 
-            return (
-              <section
-                key={stage.id}
-                aria-labelledby={`${stage.id}-heading`}
-                className="rounded-lg border border-brand-primary/15 bg-surface-card/50 p-4"
-              >
-                <header className="mb-4 flex items-center justify-between">
-                  <h2
-                    id={`${stage.id}-heading`}
-                    className="text-sm font-semibold uppercase tracking-wide text-text-primary"
-                  >
-                    {stage.label}
-                  </h2>
-                  <span className="rounded-full bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
-                    {stageTasks.length} {stageTasks.length === 1 ? 'task' : 'tasks'}
-                  </span>
-                </header>
+              return (
+                <Droppable key={stage.id} droppableId={stage.id}>
+                  {(provided, snapshot) => (
+                    <BoardColumn provided={provided} snapshot={snapshot} stage={stage}>
+                      <header className="mb-4 flex items-center justify-between">
+                        <h2
+                          id={`${stage.id}-heading`}
+                          className="text-sm font-semibold uppercase tracking-wide text-text-primary"
+                        >
+                          {stage.label}
+                        </h2>
+                        <TaskCount count={stageTasks.length} />
+                      </header>
 
-                <div className="space-y-3">
-                  {stageTasks.map((task) => {
-                    const deadlineState = getDeadlineState(task.dueDate, task.status, currentTime);
-                    const deadlineDetails = DEADLINE_DETAILS[deadlineState];
-                    const dueDateClassName = deadlineState === 'neutral'
-                      ? 'text-due-neutral'
-                      : 'text-text-primary';
+                      <div className="space-y-3">
+                        {stageTasks.map((task, index) => {
+                          const deadlineState = getDeadlineState(task.dueDate, task.status, currentTime);
+                          const deadlineDetails = DEADLINE_DETAILS[deadlineState];
+                          const dueDateClassName = deadlineState === 'neutral'
+                            ? 'text-due-neutral'
+                            : 'text-text-primary';
 
-                    return (
-                      <button
-                        key={task.id}
-                        type="button"
-                        onClick={(event) => openEdit(task, event)}
-                        aria-label={`Edit ${task.title}`}
-                        className={`block w-full rounded-md border border-brand-primary/15 border-l-4 bg-surface-card p-4 text-left shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 ${deadlineDetails.cardClassName} ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <h3 className="text-sm font-medium leading-5 text-text-primary">
-                            {task.title}
-                          </h3>
-                          <TaskTypeBadge type={task.type} />
-                        </div>
-                        <p className="mt-2 text-sm leading-5 text-text-muted">
-                          {task.description}
-                        </p>
-                        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
-                          <AssigneeBadge assignee={task.assignee} />
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <DeadlineIndicator state={deadlineState} />
-                            <span className="shrink-0">
-                              Due{' '}
-                              <span className={`font-medium ${dueDateClassName}`}>
-                                {task.dueDate ? (
-                                  <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
-                                ) : 'No due date'}
-                              </span>
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {stageTasks.length === 0 && (
-                    <p className="rounded-md border border-dashed border-brand-primary/20 px-3 py-6 text-center text-sm text-text-muted">
-                      No tasks in this stage.
-                    </p>
+                          return (
+                            <Draggable
+                              key={task.id}
+                              draggableId={task.id}
+                              index={index}
+                              disableInteractiveElementBlocking
+                            >
+                              {(dragProvided, dragSnapshot) => (
+                                <div
+                                  ref={dragProvided.innerRef}
+                                  {...dragProvided.draggableProps}
+                                  {...dragProvided.dragHandleProps}
+                                  aria-label={`Drag or edit ${task.title}`}
+                                  onKeyDown={(event) => {
+                                    dragProvided.dragHandleProps?.onKeyDown?.(event);
+                                    if (!event.defaultPrevented && event.key === 'Enter') {
+                                      openEdit(task, event);
+                                    }
+                                  }}
+                                  style={dragSnapshot.isDropAnimating
+                                    ? {
+                                      ...dragProvided.draggableProps.style,
+                                      transition: 'transform 1ms linear',
+                                    }
+                                    : dragProvided.draggableProps.style}
+                                >
+                                  <article
+                                    onClick={(event) => openEdit(task, event)}
+                                    className={`relative rounded-md border border-brand-primary/15 border-l-4 bg-surface-card shadow-sm transition-shadow duration-200 motion-reduce:transition-none ${
+                                      dragSnapshot.isDragging
+                                        ? 'scale-[1.02] cursor-grabbing shadow-xl'
+                                        : 'hover:shadow-md'
+                                    } ${deadlineDetails.cardClassName} ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
+                                  >
+                                    <div className="p-4 pr-12">
+                                      <span className="flex items-start justify-between gap-3">
+                                        <span className="min-w-0 text-sm font-medium leading-5 text-text-primary">
+                                          {task.title}
+                                        </span>
+                                        <TaskTypeBadge type={task.type} />
+                                      </span>
+                                      <span className="mt-2 block text-sm leading-5 text-text-muted">
+                                        {task.description}
+                                      </span>
+                                      <span className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
+                                        <AssigneeBadge assignee={task.assignee} />
+                                        <span className="flex flex-wrap items-center justify-end gap-2">
+                                          <DeadlineIndicator state={deadlineState} />
+                                          <span className="shrink-0">
+                                            Due{' '}
+                                            <span className={`font-medium ${dueDateClassName}`}>
+                                              {task.dueDate ? (
+                                                <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
+                                              ) : 'No due date'}
+                                            </span>
+                                          </span>
+                                        </span>
+                                      </span>
+                                    </div>
+                                    <span
+                                      aria-hidden="true"
+                                      className="pointer-events-none absolute right-2 top-2 rounded p-1.5 text-text-muted"
+                                    >
+                                      <GripVertical aria-hidden="true" size={18} strokeWidth={2} />
+                                    </span>
+                                  </article>
+                                </div>
+                              )}
+                            </Draggable>
+                          );
+                        })}
+                        {provided.placeholder}
+                        {stageTasks.length === 0 && !snapshot.isDraggingOver && (
+                          <p className="animate-empty-state rounded-md border border-dashed border-brand-primary/20 px-3 py-6 text-center text-sm text-text-muted motion-reduce:animate-none">
+                            No tasks in this stage.
+                          </p>
+                        )}
+                      </div>
+                    </BoardColumn>
                   )}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      </main>
+                </Droppable>
+              );
+            })}
+          </div>
+        </main>
+      </DragDropContext>
+
+      <footer className="mx-auto mt-8 flex max-w-screen-2xl items-center justify-between gap-4 border-t border-brand-primary/15 py-5 text-sm text-text-muted">
+        <span className="font-medium text-text-primary">Anchor</span>
+        <span>Keep the work moving.</span>
+      </footer>
+      </div>
 
       {isModalOpen && (
         <div
