@@ -464,6 +464,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterAssignee, setFilterAssignee] = useState('all');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('board');
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [isCopying, setIsCopying] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -625,15 +626,15 @@ export default function App() {
     setIsCreateBoardOpen(true);
   }
 
-  function openBoardEditor(event) {
+  function openBoardEditor(event, board = activeBoard) {
     triggerRef.current = event.currentTarget;
     setBoardForm({
-      name: activeBoard.name,
-      teamId: activeBoard.teamId,
-      members: [...(activeBoard.members ?? project.team)],
+      name: board.name,
+      teamId: board.teamId,
+      members: [...(board.members ?? project.team)],
     });
     setBoardError('');
-    setEditingBoardId(activeBoard.id);
+    setEditingBoardId(board.id);
     setIsConfirmingBoardDelete(false);
     setIsCreateBoardOpen(true);
   }
@@ -989,8 +990,21 @@ export default function App() {
 
   return (
     <div className={`${isDark ? 'dark ' : ''}min-h-screen bg-surface-page transition-colors duration-200`}>
-      <header className="mb-8 border-b border-brand-primary/15 bg-surface-card shadow-sm">
-        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+      <header className="relative mb-8 border-b border-brand-primary/15 bg-surface-card shadow-sm">
+        <button
+          type="button"
+          onClick={() => setIsSidebarOpen((current) => !current)}
+          aria-label={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          title={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          className="absolute left-3 top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-brand-primary/20 bg-surface-card text-brand-primary shadow-sm transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+        >
+          {isSidebarOpen ? (
+            <PanelLeftClose aria-hidden="true" size={18} strokeWidth={2} />
+          ) : (
+            <PanelLeftOpen aria-hidden="true" size={18} strokeWidth={2} />
+          )}
+        </button>
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 py-3 pl-16 pr-4 sm:pl-20 sm:pr-6 lg:pr-8">
         <a href="#board" className="flex items-center gap-3 text-text-primary">
           <span className="flex size-9 items-center justify-center rounded-md bg-brand-primary text-surface-card shadow-sm">
             <Anchor aria-hidden="true" size={20} strokeWidth={2.25} />
@@ -999,19 +1013,6 @@ export default function App() {
         </a>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen((current) => !current)}
-            aria-label={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-            title={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-            className="rounded-sm border border-brand-primary/20 bg-surface-card p-2 text-brand-primary shadow-sm transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
-          >
-            {isSidebarOpen ? (
-              <PanelLeftClose aria-hidden="true" size={18} strokeWidth={2} />
-            ) : (
-              <PanelLeftOpen aria-hidden="true" size={18} strokeWidth={2} />
-            )}
-          </button>
           <button
             type="button"
             onClick={openProjectSettings}
@@ -1075,38 +1076,31 @@ export default function App() {
         >
           {boards.map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}
         </select>
-        <button
-          type="button"
-          onClick={(event) => openBoardCreator(activeTeam.id, event)}
-          className="mt-2 rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-        >
-          + New board
-        </button>
-        <button
-          type="button"
-          onClick={openBoardEditor}
-          className="mt-2 rounded-sm px-3 py-2 text-sm font-medium text-text-muted hover:bg-brand-primary/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-        >
-          Edit board
-        </button>
+        <div className="mt-2 flex items-stretch gap-2">
+          <button
+            type="button"
+            onClick={(event) => openBoardCreator(activeTeam.id, event)}
+            className="flex h-10 flex-1 items-center justify-center rounded-sm border border-brand-primary/20 px-3 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+          >
+            + New board
+          </button>
+          <button
+            type="button"
+            onClick={openBoardEditor}
+            aria-label="Edit board"
+            title="Edit board"
+            className="flex size-10 shrink-0 items-center justify-center rounded-sm border border-brand-primary/20 text-text-muted hover:bg-brand-primary/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+          >
+            <Settings aria-hidden="true" size={16} strokeWidth={2} />
+          </button>
+        </div>
       </div>
 
       <div className="mx-auto flex max-w-screen-2xl gap-8">
         {isSidebarOpen && (
         <aside className="hidden w-52 shrink-0 lg:block" aria-label="Workspace navigation">
           <div className="sticky top-6 border-r border-brand-primary/15 pr-5">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Your teams</p>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-text-primary">Viewing {activeTeam.name}</p>
-              <button
-                type="button"
-                onClick={openBoardEditor}
-                className="rounded-sm px-2 py-1 text-xs font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-              >
-                Edit board
-              </button>
-            </div>
-            <div className="mt-5 space-y-5">
+            <div className="space-y-5">
               {teams.map((team) => {
                 const teamBoards = boards.filter((board) => board.teamId === team.id);
 
@@ -1117,27 +1111,38 @@ export default function App() {
                     </h2>
                     <div className="mt-2 space-y-1">
                       {teamBoards.map((board) => (
-                        <button
-                          key={board.id}
-                          type="button"
-                          onClick={() => selectBoard(board.id)}
-                          className={`flex w-full items-center gap-2 border-l-2 px-2 py-1.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${
-                            board.id === activeBoard.id
-                              ? 'border-brand-primary bg-brand-primary/10 font-medium text-text-primary'
-                              : 'border-transparent text-text-muted hover:bg-brand-primary/5 hover:text-text-primary'
-                          }`}
-                        >
-                          <span className="size-1.5 shrink-0 bg-current" />
-                          <span className="truncate">{board.name}</span>
-                        </button>
+                        <div key={board.id} className="group relative">
+                          <button
+                            type="button"
+                            onClick={() => selectBoard(board.id)}
+                            className={`flex w-full items-center gap-2 border-l-2 py-1.5 pl-2 pr-8 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${
+                              board.id === activeBoard.id
+                                ? 'border-brand-primary bg-brand-primary/10 font-medium text-text-primary'
+                                : 'border-transparent text-text-muted hover:bg-brand-primary/5 hover:text-text-primary'
+                            }`}
+                          >
+                            <span className="size-1.5 shrink-0 bg-current" />
+                            <span className="truncate">{board.name}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => openBoardEditor(event, board)}
+                            aria-label={`Edit ${board.name}`}
+                            title="Board settings"
+                            className="absolute right-1 top-1/2 -translate-x-1 -translate-y-1/2 scale-75 p-1 text-text-muted opacity-0 transition-all duration-150 ease-out hover:text-text-primary focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/30 group-hover:translate-x-0 group-hover:scale-100 group-hover:opacity-100"
+                          >
+                            <Settings aria-hidden="true" size={14} strokeWidth={2} />
+                          </button>
+                        </div>
                       ))}
                       {teamBoards.length === 0 && (
                         <button
                           type="button"
                           onClick={(event) => openBoardCreator(team.id, event)}
-                          className="px-2 text-xs font-medium text-brand-primary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                          className="group inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-brand-primary transition-[color,transform] duration-200 ease-out hover:-translate-y-px hover:text-text-primary active:translate-y-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/30 motion-reduce:transform-none"
                         >
-                          Create a board
+                          <span aria-hidden="true" className="text-sm leading-none transition-transform duration-200 ease-out group-hover:rotate-90 group-hover:scale-110 motion-reduce:transform-none">+</span>
+                          <span className="transition-transform duration-200 ease-out group-hover:translate-x-0.5 motion-reduce:transform-none">Create a board</span>
                         </button>
                       )}
                     </div>
@@ -1157,7 +1162,29 @@ export default function App() {
         )}
 
         <div className="min-w-0 flex-1">
-      <details id="deliverables" className="group mb-3 rounded-sm border border-l-2 border-l-type-feature/60 border-brand-primary/15 bg-surface-card scroll-mt-6" aria-labelledby="deliverables-heading">
+      <nav className="mb-6 flex border-b border-brand-primary/15" aria-label="Board views" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeWorkspaceTab === 'board'}
+          onClick={() => setActiveWorkspaceTab('board')}
+          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${activeWorkspaceTab === 'board' ? 'border-brand-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+        >
+          Board
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeWorkspaceTab === 'deliverables'}
+          onClick={() => setActiveWorkspaceTab('deliverables')}
+          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${activeWorkspaceTab === 'deliverables' ? 'border-brand-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+        >
+          Deliverables <span className="ml-1 text-xs text-text-muted">{anchors.length}</span>
+        </button>
+      </nav>
+
+      {activeWorkspaceTab === 'deliverables' && (
+      <details open id="deliverables" className="group rounded-sm border border-l-2 border-l-type-feature/60 border-brand-primary/15 bg-surface-card scroll-mt-6" aria-labelledby="deliverables-heading">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-3 py-2.5 hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-type-feature/10 text-type-feature">
@@ -1286,24 +1313,24 @@ export default function App() {
           </div>
         </div>
       </details>
+      )}
 
-      <details className="group rounded-sm border border-l-2 border-l-due-warning/60 border-brand-primary/15 bg-surface-card" aria-labelledby="filter-heading">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-3 py-2.5 hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
+      {activeWorkspaceTab === 'board' && (
+      <>
+      <details className="group relative mb-6" aria-labelledby="filter-heading">
+        <summary className="flex w-fit cursor-pointer list-none items-center gap-3 rounded-sm border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm font-medium text-text-primary shadow-sm hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-due-warning/10 text-due-warning">
+            <span className="text-due-warning">
               <SlidersHorizontal aria-hidden="true" size={15} strokeWidth={2} />
             </span>
-            <h2 id="filter-heading" className="truncate text-sm font-semibold text-text-primary">Filter tasks</h2>
-            <span className="hidden text-xs text-text-muted sm:inline">
-              {hasActiveFilters ? `${visibleTasks.length} of ${tasks.length} shown` : 'Search and filter'}
-            </span>
+            <h2 id="filter-heading" className="text-sm font-medium text-text-primary">Filter</h2>
           </div>
           <div className="flex items-center gap-3">
             {hasActiveFilters && <span className="text-xs font-medium text-due-warning">Active</span>}
-            <ChevronDown aria-hidden="true" size={20} className="text-text-muted transition-transform duration-200 group-open:rotate-180" />
+            <ChevronDown aria-hidden="true" size={16} className="text-text-muted transition-transform duration-200 group-open:rotate-180" />
           </div>
         </summary>
-        <div className="border-t border-brand-primary/15 p-4">
+        <div className="absolute right-0 z-10 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-sm border border-brand-primary/15 bg-surface-card p-4 shadow-lg">
           {hasActiveFilters && (
             <div className="mb-3 flex justify-end">
               <button
@@ -1315,8 +1342,8 @@ export default function App() {
               </button>
             </div>
           )}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="sm:col-span-1">
+        <div className="grid gap-3">
+          <label>
             <span className="sr-only">Search tasks</span>
             <input
               type="search"
@@ -1360,7 +1387,8 @@ export default function App() {
 
       <DragDropContext onDragEnd={handleDragEnd}>
         <main id="board" className="mt-8 scroll-mt-6" aria-label="Kanban board">
-          <div className={`grid gap-6 md:grid-cols-2 ${isSidebarOpen ? '2xl:grid-cols-4' : 'xl:grid-cols-4'}`}>
+          <div className="overflow-x-auto pb-2">
+            <div className="grid min-w-[1080px] grid-cols-4 gap-6">
             {STAGES.map((stage) => {
               const stageTasks = visibleTasks.filter((task) => task.status === stage.id);
 
@@ -1471,9 +1499,12 @@ export default function App() {
                 </Droppable>
               );
             })}
+            </div>
           </div>
         </main>
       </DragDropContext>
+      </>
+      )}
         </div>
       </div>
 
