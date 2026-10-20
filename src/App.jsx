@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bug, Sparkles } from 'lucide-react';
+import { Bug, Sparkles, User } from 'lucide-react';
 import { MOCK_TASKS } from './mockTasks';
 
 /**
@@ -87,6 +87,15 @@ function TaskTypeBadge({ type }) {
     <span className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 font-mono text-xs font-medium ${badgeClassName}`}>
       <Icon aria-hidden="true" size={14} strokeWidth={2} />
       {label}
+    </span>
+  );
+}
+
+function AssigneeBadge({ assignee }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded border border-brand-primary/20 bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
+      <User aria-hidden="true" size={14} strokeWidth={2} />
+      <span className="truncate">{assignee}</span>
     </span>
   );
 }
@@ -195,6 +204,7 @@ export default function App() {
   const [errors, setErrors] = useState({});
   const [notice, setNotice] = useState('');
   const titleInputRef = useRef(null);
+  const assigneeSelectRef = useRef(null);
   const triggerRef = useRef(null);
   const isModalOpen = isCreating || editingTask !== null;
 
@@ -256,6 +266,12 @@ export default function App() {
       return;
     }
 
+    if (!TEAM.includes(form.assignee)) {
+      setErrors({ assignee: 'Select a team member.' });
+      assigneeSelectRef.current?.focus();
+      return;
+    }
+
     const editableFields = {
       title: form.title.trim(),
       description: form.description.trim(),
@@ -269,7 +285,11 @@ export default function App() {
       setTasks((current) => current.map((task) => (
         task.id === editingTask.id ? { ...task, ...editableFields } : task
       )));
-      setNotice('Task updated.');
+      setNotice(
+        editingTask.assignee === form.assignee
+          ? 'Task updated.'
+          : `Assigned to ${form.assignee}.`,
+      );
     } else {
       setTasks((current) => [
         ...current,
@@ -368,19 +388,16 @@ export default function App() {
                       <p className="mt-2 text-sm leading-5 text-text-muted">
                         {task.description}
                       </p>
-                      <div className="mt-4 space-y-1.5 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
-                        <div className="flex justify-between gap-3">
-                          <span>Assigned to</span>
-                          <span className="font-medium text-text-primary">{task.assignee}</span>
-                        </div>
-                        <div className="flex justify-between gap-3">
-                          <span>Due</span>
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
+                        <AssigneeBadge assignee={task.assignee} />
+                        <span className="shrink-0">
+                          Due{' '}
                           <span className="font-medium text-text-primary">
                             {task.dueDate ? (
                               <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
                             ) : 'No due date'}
                           </span>
-                        </div>
+                        </span>
                       </div>
                     </button>
                   ))}
@@ -494,17 +511,30 @@ export default function App() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="assignee" className="block text-sm font-medium text-text-primary">
-                      Assignee
+                      {editingTask ? 'Hand off to...' : 'Assignee'}
                     </label>
+                    {editingTask && (
+                      <p id="assignee-help" className="mt-1 text-xs text-text-muted">
+                        Currently assigned to {editingTask.assignee}.
+                      </p>
+                    )}
                     <select
+                      ref={assigneeSelectRef}
                       id="assignee"
                       name="assignee"
                       value={form.assignee}
                       onChange={updateForm}
+                      aria-invalid={Boolean(errors.assignee)}
+                      aria-describedby={editingTask ? 'assignee-help' : undefined}
                       className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
                     >
                       {TEAM.map((member) => <option key={member} value={member}>{member}</option>)}
                     </select>
+                    {errors.assignee && (
+                      <p className="mt-1.5 text-sm text-type-bug" role="alert">
+                        {errors.assignee}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="dueDate" className="block text-sm font-medium text-text-primary">
