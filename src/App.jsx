@@ -1,9 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
 import {
-  Anchor,
   BookOpen,
-  Bug,
   Copy,
   ChevronDown,
   ExternalLink,
@@ -17,7 +15,6 @@ import {
   PanelLeftOpen,
   Presentation,
   Search,
-  Sparkles,
   Settings,
   SlidersHorizontal,
   Sun,
@@ -227,13 +224,13 @@ function isValidBoards(value) {
 const TASK_TYPE_DETAILS = {
   feature: {
     label: 'Feature',
-    Icon: Sparkles,
+    iconPath: '/feature-icon.png',
     badgeClassName: 'border-type-feature/30 bg-type-feature/10 text-type-feature',
     stripeClassName: 'border-l-type-feature',
   },
   bug: {
     label: 'Bug',
-    Icon: Bug,
+    iconPath: '/bug-icon.png',
     badgeClassName: 'border-type-bug/30 bg-type-bug/10 text-type-bug',
     stripeClassName: 'border-l-type-bug',
   },
@@ -270,11 +267,11 @@ const ANCHOR_DETAILS = {
 };
 
 function TaskTypeBadge({ type }) {
-  const { label, Icon, badgeClassName } = TASK_TYPE_DETAILS[type];
+  const { label, iconPath, badgeClassName } = TASK_TYPE_DETAILS[type];
 
   return (
     <span className={`inline-flex shrink-0 items-center gap-1 rounded-sm border px-2 py-0.5 font-mono text-xs font-medium ${badgeClassName}`}>
-      <Icon aria-hidden="true" size={14} strokeWidth={2} />
+      <img src={iconPath} alt="" className="size-3.5 object-contain" />
       {label}
     </span>
   );
@@ -375,12 +372,27 @@ function formatDueDate(dueDate) {
   }).format(new Date(`${dueDate}T00:00:00Z`));
 }
 
-function formatTimelineDate(timestamp) {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(timestamp));
+function getCalendarDays(month) {
+  const firstDay = new Date(`${month}-01T00:00:00Z`);
+  const start = new Date(firstDay);
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(start);
+    day.setUTCDate(start.getUTCDate() + index);
+    return day.toISOString().slice(0, 10);
+  });
+}
+
+function shiftCalendarMonth(month, amount) {
+  const date = new Date(`${month}-01T00:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() + amount);
+  return date.toISOString().slice(0, 7);
+}
+
+function formatCalendarMonth(month) {
+  return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${month}-01T00:00:00Z`));
 }
 
 function formatContextUpdatedAt(timestamp) {
@@ -597,6 +609,7 @@ export default function App() {
   const [filterAssignee, setFilterAssignee] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('board');
+  const [calendarMonth, setCalendarMonth] = useState(() => getLocalDate().slice(0, 7));
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
   const [isCopying, setIsCopying] = useState(false);
@@ -1196,6 +1209,26 @@ export default function App() {
     }
   }
 
+  function handleCalendarDragEnd(result) {
+    if (!result.destination) return;
+
+    const taskId = result.draggableId.replace('calendar-', '');
+    const task = activeTasks.find((item) => item.id === taskId);
+    const dueDate = result.destination.droppableId === 'calendar-unscheduled'
+      ? null
+      : result.destination.droppableId;
+
+    if (!task || task.dueDate === dueDate) return;
+
+    setTasks((current) => current.map((item) => (
+      item.id === taskId ? { ...item, dueDate } : item
+    )));
+    logActivity(dueDate
+      ? `Rescheduled “${task.title}” to ${formatDueDate(dueDate)}.`
+      : `Removed the due date from “${task.title}”.`);
+    setNotice(dueDate ? 'Task rescheduled.' : 'Due date removed.');
+  }
+
   function undoLastAction() {
     if (!undoState) return;
 
@@ -1304,20 +1337,12 @@ export default function App() {
   const upcomingTasks = activeTasks.filter((task) => task.dueDate && getDeadlineState(task.dueDate, task.status, currentTime) !== 'overdue' && task.status !== 'done')
     .sort((first, second) => first.dueDate.localeCompare(second.dueDate));
   const unscheduledTasks = activeTasks.filter((task) => !task.dueDate && task.status !== 'done');
-  const timelineTasks = activeTasks
-    .filter((task) => task.dueDate)
-    .sort((first, second) => first.dueDate.localeCompare(second.dueDate));
-  const timelineStart = timelineTasks.length > 0
-    ? Math.min(...timelineTasks.map((task) => Math.min(
-      Date.parse(`${task.createdDate}T00:00:00Z`),
-      Date.parse(`${task.dueDate}T00:00:00Z`),
-    )))
-    : 0;
-  const timelineEnd = timelineTasks.length > 0
-    ? Math.max(...timelineTasks.map((task) => Date.parse(`${task.dueDate}T00:00:00Z`)))
-    : 0;
-  const timelineRange = Math.max(timelineEnd - timelineStart, 24 * 60 * 60 * 1000);
-  const timelineMarkers = Array.from({ length: 5 }, (_, index) => timelineStart + ((timelineRange * index) / 4));
+  const calendarUnscheduledTasks = activeTasks.filter((task) => !task.dueDate);
+  const calendarDays = getCalendarDays(calendarMonth);
+  const calendarTasksByDate = activeTasks.reduce((grouped, task) => {
+    if (!task.dueDate) return grouped;
+    return { ...grouped, [task.dueDate]: [...(grouped[task.dueDate] ?? []), task] };
+  }, {});
 
   function clearFilters() {
     setSearchQuery('');
@@ -1344,9 +1369,11 @@ export default function App() {
         </button>
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 py-3 pl-16 pr-4 sm:pl-20 sm:pr-6 lg:pr-8">
         <a href="#board" className="flex items-center gap-3 text-text-primary">
-          <span className="flex size-9 items-center justify-center rounded-md bg-brand-primary text-surface-card shadow-sm">
-            <Anchor aria-hidden="true" size={20} strokeWidth={2.25} />
-          </span>
+          <img
+            src="/anchor-logo.png"
+            alt=""
+            className={`size-11 shrink-0 object-contain ${isDark ? '' : 'brightness-[0.45] saturate-150 contrast-125'}`}
+          />
           <span className="text-lg font-semibold tracking-tight">{project.name}</span>
         </a>
 
@@ -1720,64 +1747,116 @@ export default function App() {
 
       {activeWorkspaceTab === 'timeline' && (
         <section aria-labelledby="timeline-heading">
-          <h2 id="timeline-heading" className="text-xl font-semibold text-text-primary">Timeline</h2>
-          <p className="mt-1 text-sm text-text-muted">Each line starts when a task was created and ends on its due date.</p>
-          {timelineTasks.length > 0 ? (
-            <div className="mt-6 overflow-x-auto rounded-sm border border-brand-primary/15 bg-surface-card">
-              <div className="min-w-[760px] p-4">
-                <div className="grid grid-cols-[12rem_minmax(0,1fr)] gap-4">
-                  <div />
-                  <div className="relative h-7 border-b border-brand-primary/15">
-                    {timelineMarkers.map((marker, index) => {
-                      const left = ((marker - timelineStart) / timelineRange) * 100;
-                      const positionClassName = index === 0
-                        ? 'translate-x-0'
-                        : index === timelineMarkers.length - 1
-                          ? '-translate-x-full'
-                          : '-translate-x-1/2';
-
-                      return (
-                        <span key={marker} className={`absolute top-0 whitespace-nowrap text-xs text-text-muted ${positionClassName}`} style={{ left: `${left}%` }}>
-                          {formatTimelineDate(marker)}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  {timelineTasks.map((task) => {
-                    const start = Date.parse(`${task.createdDate}T00:00:00Z`);
-                    const due = Date.parse(`${task.dueDate}T00:00:00Z`);
-                    const left = ((Math.min(start, due) - timelineStart) / timelineRange) * 100;
-                    const width = Math.max(((Math.abs(due - start) / timelineRange) * 100), 2);
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 id="timeline-heading" className="text-xl font-semibold text-text-primary">Calendar</h2>
+              <p className="mt-1 text-sm text-text-muted">Drag a task to another day to reschedule it.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setCalendarMonth((current) => shiftCalendarMonth(current, -1))} className="rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">Previous</button>
+              <button type="button" onClick={() => setCalendarMonth((current) => shiftCalendarMonth(current, 1))} className="rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">Next</button>
+            </div>
+          </div>
+          <h3 className="mt-6 text-base font-semibold text-text-primary">{formatCalendarMonth(calendarMonth)}</h3>
+          <DragDropContext onDragEnd={handleCalendarDragEnd}>
+            <div className="mt-3 overflow-x-auto rounded-sm border border-brand-primary/15 bg-surface-card">
+              <div className="min-w-[720px]">
+                <div className="grid grid-cols-7 border-b border-brand-primary/15 bg-surface-page/50">
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                    <span key={day} className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-text-muted">{day}</span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7">
+                  {calendarDays.map((day) => {
+                    const isCurrentMonth = day.startsWith(calendarMonth);
+                    const isToday = day === getLocalDate();
+                    const dayTasks = calendarTasksByDate[day] ?? [];
 
                     return (
-                      <div key={task.id} className="contents">
-                        <button type="button" onClick={(event) => openEdit(task, event)} className="border-b border-brand-primary/10 py-3 text-left focus:outline-none focus:ring-2 focus:ring-brand-primary/30">
-                          <span className="block truncate text-sm font-medium text-text-primary">{task.title}</span>
-                          <span className="mt-1 block text-xs text-text-muted">{formatDueDate(task.createdDate)} — {formatDueDate(task.dueDate)}</span>
-                        </button>
-                        <div className="relative border-b border-brand-primary/10 py-3">
-                          <span aria-hidden="true" className="absolute left-0 right-0 top-1/2 h-px bg-brand-primary/15" />
-                          <button
-                            type="button"
-                            onClick={(event) => openEdit(task, event)}
-                            aria-label={`Open ${task.title}`}
-                            title={`${formatDueDate(task.createdDate)} to ${formatDueDate(task.dueDate)}`}
-                            className={`absolute top-1/2 h-2 -translate-y-1/2 rounded-full ${task.type === 'feature' ? 'bg-type-feature' : 'bg-type-bug'} focus:outline-none focus:ring-2 focus:ring-brand-primary/30`}
-                            style={{ left: `${left}%`, width: `${width}%` }}
-                          />
-                        </div>
-                      </div>
+                      <Droppable key={day} droppableId={day}>
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.droppableProps}
+                            className={`min-h-32 border-b border-r border-brand-primary/10 p-2 transition-colors ${
+                              snapshot.isDraggingOver ? 'bg-brand-primary/10' : isCurrentMonth ? 'bg-surface-card' : 'bg-surface-page/50'
+                            }`}
+                          >
+                            <span className={`mb-2 inline-flex size-6 items-center justify-center rounded-full text-xs font-medium ${isToday ? 'bg-brand-primary text-surface-card' : isCurrentMonth ? 'text-text-primary' : 'text-text-muted'}`}>{Number(day.slice(-2))}</span>
+                            <div className="space-y-1.5">
+                              {dayTasks.map((task, index) => (
+                                <Draggable key={task.id} draggableId={`calendar-${task.id}`} index={index} disableInteractiveElementBlocking>
+                                  {(dragProvided, dragSnapshot) => (
+                                    <button
+                                      ref={dragProvided.innerRef}
+                                      {...dragProvided.draggableProps}
+                                      {...dragProvided.dragHandleProps}
+                                      style={dragSnapshot.isDropAnimating
+                                        ? { ...dragProvided.draggableProps.style, transition: 'transform 1ms linear' }
+                                        : dragProvided.draggableProps.style}
+                                      type="button"
+                                      onClick={(event) => openEdit(task, event)}
+                                      className={`w-full rounded-sm border-l-2 px-2 py-1.5 text-left text-xs shadow-sm transition-shadow ${
+                                        task.type === 'feature' ? 'border-l-type-feature bg-type-feature/10 text-text-primary' : 'border-l-type-bug bg-type-bug/10 text-text-primary'
+                                      } ${dragSnapshot.isDragging ? 'shadow-lg' : 'hover:shadow-md'}`}
+                                    >
+                                      <span className="block truncate font-medium">{task.title}</span>
+                                      <span className="mt-0.5 block truncate text-text-muted">Set {formatDueDate(task.createdDate)}</span>
+                                    </button>
+                                  )}
+                                </Draggable>
+                              ))}
+                              {provided.placeholder}
+                            </div>
+                          </div>
+                        )}
+                      </Droppable>
                     );
                   })}
                 </div>
               </div>
             </div>
-          ) : (
-            <p className="mt-6 rounded-sm border border-dashed border-brand-primary/20 px-4 py-8 text-center text-sm text-text-muted">Add due dates to see tasks on the timeline.</p>
-          )}
-          {unscheduledTasks.length > 0 && (
-            <p className="mt-4 text-sm text-text-muted">{unscheduledTasks.length} active {unscheduledTasks.length === 1 ? 'task has' : 'tasks have'} no due date and is not shown.</p>
-          )}
+            <Droppable droppableId="calendar-unscheduled">
+              {(provided, snapshot) => (
+                <section
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className={`mt-5 rounded-sm border border-dashed p-4 transition-colors ${snapshot.isDraggingOver ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-primary/20 bg-surface-card'}`}
+                >
+                  <h3 className="text-sm font-semibold text-text-primary">Unscheduled tasks</h3>
+                  <p className="mt-1 text-xs text-text-muted">Drag a task here to remove its due date, or drag one onto the calendar to schedule it.</p>
+                  <div className="mt-3 min-h-10 space-y-2">
+                    {calendarUnscheduledTasks.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {calendarUnscheduledTasks.map((task, index) => (
+                      <Draggable key={task.id} draggableId={`calendar-${task.id}`} index={index} disableInteractiveElementBlocking>
+                        {(dragProvided, dragSnapshot) => (
+                              <button
+                                ref={dragProvided.innerRef}
+                                {...dragProvided.draggableProps}
+                                {...dragProvided.dragHandleProps}
+                            style={dragSnapshot.isDropAnimating
+                              ? { ...dragProvided.draggableProps.style, transition: 'transform 1ms linear' }
+                              : dragProvided.draggableProps.style}
+                                type="button"
+                                onClick={(event) => openEdit(task, event)}
+                                className="rounded-sm border border-brand-primary/20 bg-surface-page px-3 py-2 text-sm text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                              >
+                                {task.title}
+                              </button>
+                            )}
+                          </Draggable>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-text-muted">Drop a task here to unschedule it.</p>
+                    )}
+                    {provided.placeholder}
+                  </div>
+                </section>
+              )}
+            </Droppable>
+          </DragDropContext>
         </section>
       )}
 
@@ -2615,7 +2694,7 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-board-title"
-            className="modal-panel w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl"
+            className="modal-panel max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-lg bg-surface-card p-6 shadow-xl"
           >
             <div className="mb-6">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
