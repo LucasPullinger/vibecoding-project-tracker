@@ -417,17 +417,17 @@ function SubtaskProgress({ subtasks }) {
   );
 }
 
-function BoardColumn({ children, provided, snapshot, stage }) {
+function BoardColumn({ children, className = '', provided, snapshot, stage }) {
   return (
     <section
       ref={provided.innerRef}
       {...provided.droppableProps}
       aria-labelledby={`${stage.id}-heading`}
-      className={`rounded-sm border p-5 transition-colors duration-200 motion-reduce:transition-none ${
+      className={`rounded-sm border p-4 transition-colors duration-200 motion-reduce:transition-none sm:p-5 ${
         snapshot.isDraggingOver
           ? 'border-brand-primary/40 bg-brand-primary/5'
           : 'border-brand-primary/15 bg-surface-card/50'
-      }`}
+      } ${className}`}
     >
       {children}
     </section>
@@ -659,7 +659,7 @@ export default function App() {
     DEFAULT_MEMBERS,
     isValidMembers,
   );
-  const [currentUserId] = useLocalStorage(
+  const [currentUserId, setCurrentUserId] = useLocalStorage(
     'vibetracker.current-user',
     DEFAULT_MEMBERS[0].id,
     (value) => typeof value === 'string',
@@ -716,8 +716,10 @@ export default function App() {
   const anchorUrlInputRef = useRef(null);
   const projectNameInputRef = useRef(null);
   const teamSectionInputRef = useRef(null);
+  const teamSettingsHeadingRef = useRef(null);
   const boardNameInputRef = useRef(null);
   const filterDetailsRef = useRef(null);
+  const userProfileRef = useRef(null);
   const triggerRef = useRef(null);
   const isModalOpen = isCreating || editingTask !== null;
   const isDark = theme === 'dark';
@@ -841,10 +843,51 @@ export default function App() {
   }
 
   function logActivity(message) {
+    const actor = currentUser?.name ?? 'Someone';
     updateActiveBoard('activity', (current = []) => ([
-      { id: createTaskId(), message, timestamp: new Date().toISOString() },
+      { id: createTaskId(), message: `${actor} ${message.charAt(0).toLowerCase()}${message.slice(1)}`, timestamp: new Date().toISOString() },
       ...current,
     ].slice(0, 30)));
+  }
+
+  function stageLabel(status) {
+    return STAGES.find((stage) => stage.id === status)?.label ?? 'another stage';
+  }
+
+  function deliverableLabel(deliverableId) {
+    return anchors.find((anchor) => anchor.id === deliverableId)?.label ?? 'a deliverable';
+  }
+
+  function describeTaskChanges(task, nextFields, details) {
+    const taskTitle = `“${nextFields.title}”`;
+    const changes = [];
+
+    if (task.title !== nextFields.title) changes.push(`renamed “${task.title}” to ${taskTitle}`);
+    if (task.status !== nextFields.status) changes.push(`moved ${taskTitle} from ${stageLabel(task.status)} to ${stageLabel(nextFields.status)}`);
+    if (task.assignee !== nextFields.assignee) changes.push(`assigned ${taskTitle} to ${nextFields.assignee}`);
+    if (task.type !== nextFields.type) changes.push(`changed ${taskTitle} to a ${nextFields.type}`);
+    if (task.dueDate !== nextFields.dueDate) {
+      changes.push(nextFields.dueDate
+        ? `set ${taskTitle} due ${formatDueDate(nextFields.dueDate)}`
+        : `removed the due date from ${taskTitle}`);
+    }
+    if ((taskPriorities[task.id] ?? 'medium') !== details.priority) changes.push(`set ${taskTitle} priority to ${details.priority}`);
+    if (getTaskDeliverableId(task.id) !== details.deliverableId) {
+      changes.push(details.deliverableId
+        ? `linked ${taskTitle} to ${deliverableLabel(details.deliverableId)}`
+        : `unlinked ${taskTitle} from its deliverable`);
+    }
+    if (task.description !== nextFields.description) changes.push(`updated the description for ${taskTitle}`);
+    if (details.contextChanged) changes.push(`updated the context for ${taskTitle}`);
+    if (JSON.stringify(subtasksByTask[task.id] ?? []) !== JSON.stringify(details.subtasks)) changes.push(`updated subtasks for ${taskTitle}`);
+
+    return changes.length > 0 ? changes.join(' · ') : `reviewed ${taskTitle} with no changes`;
+  }
+
+  function selectCurrentUser(member) {
+    setCurrentUserId(member.id);
+    userProfileRef.current?.removeAttribute('open');
+    setNotice(`You are now ${member.name}.`);
   }
 
   function toggleSidebar() {
@@ -893,7 +936,7 @@ export default function App() {
     window.requestAnimationFrame(() => {
       if (isConfirmingTaskDelete) return;
       if (isCreateBoardOpen) boardNameInputRef.current?.focus();
-      else if (isTeamSettingsOpen) teamSectionInputRef.current?.focus();
+      else if (isTeamSettingsOpen) teamSettingsHeadingRef.current?.focus();
       else if (isProjectSettingsOpen) projectNameInputRef.current?.focus();
       else titleInputRef.current?.focus();
     });
@@ -943,6 +986,16 @@ export default function App() {
 
     document.addEventListener('pointerdown', closeAssigneePickerOnOutsideClick, true);
     return () => document.removeEventListener('pointerdown', closeAssigneePickerOnOutsideClick, true);
+  }, []);
+
+  useEffect(() => {
+    const closeProfileOnOutsideClick = (event) => {
+      const profileDetails = userProfileRef.current;
+      if (profileDetails?.open && !profileDetails.contains(event.target)) profileDetails.open = false;
+    };
+
+    document.addEventListener('pointerdown', closeProfileOnOutsideClick, true);
+    return () => document.removeEventListener('pointerdown', closeProfileOnOutsideClick, true);
   }, []);
 
   useEffect(() => {
@@ -1312,7 +1365,10 @@ export default function App() {
       )),
     }));
     const subtask = (subtasksByTask[taskId] ?? []).find((item) => item.id === subtaskId);
-    if (subtask) logActivity(`${subtask.completed ? 'Reopened' : 'Completed'} subtask “${subtask.title}”.`);
+    if (subtask) {
+      const task = tasks.find((item) => item.id === taskId);
+      logActivity(`${subtask.completed ? 'reopened' : 'completed'} subtask “${subtask.title}” on “${task?.title ?? 'a task'}”`);
+    }
   }
 
   function saveTask(event) {
@@ -1366,9 +1422,12 @@ export default function App() {
           ? 'Task updated.'
           : form.assignee === UNASSIGNED ? 'Task unassigned.' : `Assigned to ${form.assignee}.`,
       );
-      logActivity(editingTask.assignee === form.assignee
-        ? `Updated “${editableFields.title}”.`
-        : `Assigned “${editableFields.title}” to ${form.assignee}.`);
+      logActivity(describeTaskChanges(editingTask, editableFields, {
+        contextChanged,
+        deliverableId: form.deliverableId,
+        priority: form.priority,
+        subtasks: form.subtasks,
+      }));
     } else {
       const taskId = createTaskId();
       setTasks((current) => [
@@ -1386,7 +1445,7 @@ export default function App() {
       assignTaskToDeliverable(taskId, form.deliverableId);
       saveSubtasks(taskId, form.subtasks);
       setNotice('Task created.');
-      logActivity(`Created “${editableFields.title}”.`);
+      logActivity(`created ${editableFields.type} task “${editableFields.title}” in ${stageLabel(editableFields.status)}, assigned to ${editableFields.assignee}`);
     }
 
     closeModal();
@@ -1414,7 +1473,7 @@ export default function App() {
       return next;
     });
     setArchivedTaskIds((current = []) => current.filter((taskId) => taskId !== editingTask.id));
-    logActivity(`Deleted “${editingTask.title}”.`);
+    logActivity(`deleted task “${editingTask.title}” and its related details`);
     setNotice('Task deleted.');
     closeModal();
   }
@@ -1428,7 +1487,12 @@ export default function App() {
       setUndoState({ tasks, subtasksByTask });
       setTasks(reorderedTasks);
       setNotice('Task moved.');
-      logActivity(`Moved a task to ${STAGES.find((stage) => stage.id === result.destination?.droppableId)?.label ?? 'another stage'}.`);
+      const task = tasks.find((item) => item.id === result.draggableId);
+      const sourceStage = stageLabel(result.source.droppableId);
+      const destinationStage = stageLabel(result.destination?.droppableId);
+      logActivity(result.source.droppableId === result.destination?.droppableId
+        ? `reordered “${task?.title ?? 'a task'}” in ${sourceStage}`
+        : `moved “${task?.title ?? 'a task'}” from ${sourceStage} to ${destinationStage}`);
     }
   }
 
@@ -1447,8 +1511,8 @@ export default function App() {
       item.id === taskId ? { ...item, dueDate } : item
     )));
     logActivity(dueDate
-      ? `Rescheduled “${task.title}” to ${formatDueDate(dueDate)}.`
-      : `Removed the due date from “${task.title}”.`);
+      ? `rescheduled “${task.title}” from ${task.dueDate ? formatDueDate(task.dueDate) : 'unscheduled'} to ${formatDueDate(dueDate)}`
+      : `removed the due date from “${task.title}”`);
     setNotice(dueDate ? 'Task rescheduled.' : 'Due date removed.');
   }
 
@@ -1576,7 +1640,7 @@ export default function App() {
 
   return (
     <div className={`${isDark ? 'dark ' : ''}min-h-screen bg-surface-page transition-colors duration-200`}>
-      <header className="relative mb-8 border-b border-brand-primary/15 bg-surface-card shadow-sm">
+      <header className="relative mb-4 border-b border-brand-primary/15 bg-surface-card shadow-sm sm:mb-8">
         <button
           type="button"
           onClick={toggleSidebar}
@@ -1590,18 +1654,18 @@ export default function App() {
             <PanelLeftOpen aria-hidden="true" size={18} strokeWidth={2} />
           )}
         </button>
-        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 py-3 pl-16 pr-4 sm:pl-20 sm:pr-6 lg:pr-8">
-        <a href="#board" className="flex items-center gap-3 text-text-primary">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-2 py-2.5 pl-14 pr-3 sm:gap-4 sm:py-3 sm:pl-20 sm:pr-6 lg:pr-8">
+        <a href="#board" className="flex shrink-0 items-center gap-2 sm:gap-3 text-text-primary">
           <img
             src="/anchor-logo.png"
             alt=""
-            className={`size-11 shrink-0 object-contain ${isDark ? '' : 'brightness-[0.45] saturate-150 contrast-125'}`}
+            className={`size-9 shrink-0 object-contain sm:size-11 ${isDark ? '' : 'brightness-[0.45] saturate-150 contrast-125'}`}
           />
-          <span className="text-lg font-semibold tracking-tight">{project.name}</span>
+          <span className="hidden text-lg font-semibold tracking-tight sm:block">{project.name}</span>
         </a>
 
-        <div className="flex items-center gap-2">
-          <details className="group relative">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <details ref={userProfileRef} className="group relative">
             <summary className="flex cursor-pointer list-none items-center gap-2 rounded-sm border border-brand-primary/20 bg-surface-card px-2 py-1.5 text-left text-sm text-text-primary shadow-sm marker:hidden transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page">
               <MemberAvatar member={currentUser} size="size-6" />
               <span className="hidden max-w-24 truncate sm:block">{currentUser.name}</span>
@@ -1615,6 +1679,21 @@ export default function App() {
                 </div>
               </div>
               <p className="mt-3 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">Current user · {currentUser.email}</p>
+              <div className="mt-3 border-t border-brand-primary/10 pt-3">
+                <p className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-text-muted">Switch user</p>
+                {members.map((member) => (
+                  <button
+                    key={member.id}
+                    type="button"
+                    onClick={() => selectCurrentUser(member)}
+                    className={`flex w-full items-center gap-2 rounded-sm px-1 py-1.5 text-left text-xs transition-colors hover:bg-brand-primary/10 ${member.id === currentUser.id ? 'text-text-primary' : 'text-text-muted'}`}
+                  >
+                    <MemberAvatar member={member} size="size-5" />
+                    <span className="min-w-0 flex-1 truncate">{member.name}</span>
+                    {member.id === currentUser.id && <span className="text-brand-primary">Current</span>}
+                  </button>
+                ))}
+              </div>
             </div>
           </details>
           <button
@@ -1643,18 +1722,24 @@ export default function App() {
             ref={triggerRef}
             type="button"
             onClick={openCreate}
-            className="rounded-sm bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+            className="rounded-sm bg-brand-primary px-3 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page sm:px-4"
           >
-            + New task
+            <span className="sm:hidden" aria-hidden="true">+</span>
+            <span className="hidden sm:inline">+ New task</span>
+            <span className="sr-only sm:hidden">New task</span>
           </button>
         </div>
         </div>
       </header>
 
-      <div className="px-4 pb-6 sm:px-6 lg:px-8">
+      <div className="px-3 pb-6 sm:px-6 lg:px-8">
 
       {notice && (
-        <div className="fixed bottom-4 right-4 z-20 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-sm border border-brand-primary/20 bg-surface-card px-4 py-3 text-sm text-brand-primary shadow-md" role="status">
+        <div
+          className="notice-toast fixed bottom-4 right-4 z-20 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-sm border border-brand-primary/20 bg-surface-card px-4 py-3 text-sm text-brand-primary shadow-md"
+          style={{ '--notice-duration': `${undoState ? 5000 : 2500}ms` }}
+          role="status"
+        >
           <span>{notice}</span>
           {undoState && (
             <button
@@ -1681,7 +1766,7 @@ export default function App() {
               : 'lg:w-0 lg:delay-100 lg:pointer-events-none'
           }`}
         >
-          <div className={`sticky top-6 w-52 border-r border-brand-primary/15 pr-5 transition-[opacity,transform] duration-100 ease-out motion-reduce:transition-none ${
+          <div className={`sticky top-6 w-full border-r border-brand-primary/15 pr-5 transition-[opacity,transform] duration-100 ease-out motion-reduce:transition-none lg:w-52 ${
             isSidebarOpen || isMobileSidebarOpen ? 'translate-x-0 opacity-100 delay-200' : '-translate-x-2 opacity-0 delay-0'
           }`}>
             <label className="relative block">
@@ -1705,9 +1790,11 @@ export default function App() {
             </button>
             <div className="mt-5 space-y-5">
               {teams.map((team) => {
-                const teamBoards = matchingBoards.filter((board) => board.teamId === team.id);
+                const teamMatchesSearch = team.name.toLowerCase().includes(normalizedBoardSearch);
+                const teamBoards = (teamMatchesSearch ? boards : matchingBoards)
+                  .filter((board) => board.teamId === team.id);
 
-                if (normalizedBoardSearch && teamBoards.length === 0) return null;
+                if (normalizedBoardSearch && !teamMatchesSearch && teamBoards.length === 0) return null;
 
                 return (
                   <section key={team.id} aria-labelledby={`team-${team.id}`}>
@@ -1754,7 +1841,7 @@ export default function App() {
                   </section>
                 );
               })}
-              {normalizedBoardSearch && matchingBoards.length === 0 && (
+              {normalizedBoardSearch && matchingBoards.length === 0 && !teams.some((team) => team.name.toLowerCase().includes(normalizedBoardSearch)) && (
                 <p className="text-sm text-text-muted">No boards found.</p>
               )}
             </div>
@@ -2068,13 +2155,13 @@ export default function App() {
                 <section
                   ref={provided.innerRef}
                   {...provided.droppableProps}
-                  className={`mt-5 rounded-sm border border-dashed p-4 transition-colors ${snapshot.isDraggingOver ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-primary/20 bg-surface-card'}`}
+                  className={`relative mt-5 min-w-0 w-full max-w-full rounded-sm border border-dashed p-4 transition-colors ${snapshot.isDraggingOver ? 'border-brand-primary bg-brand-primary/5' : 'border-brand-primary/20 bg-surface-card'}`}
                 >
                   <h3 className="text-sm font-semibold text-text-primary">Unscheduled tasks</h3>
                   <p className="mt-1 text-xs text-text-muted">Drag a task here to remove its due date, or drag one onto the calendar to schedule it.</p>
-                  <div className="mt-3 min-h-10 space-y-2">
+                  <div className="mt-3 min-h-10 min-w-0 space-y-2">
                     {calendarUnscheduledTasks.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
+                      <>
                         {calendarUnscheduledTasks.map((task, index) => (
                       <Draggable key={task.id} draggableId={`calendar-${task.id}`} index={index} disableInteractiveElementBlocking>
                         {(dragProvided, dragSnapshot) => (
@@ -2087,17 +2174,19 @@ export default function App() {
                               : dragProvided.draggableProps.style}
                                 type="button"
                                 onClick={(event) => openEdit(task, event)}
-                                className="rounded-sm border border-brand-primary/20 bg-surface-page px-3 py-2 text-sm text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                                className="block w-fit max-w-full truncate rounded-sm border border-brand-primary/20 bg-surface-page px-3 py-2 text-sm text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
                               >
                                 {task.title}
                               </button>
                             )}
                           </Draggable>
                         ))}
-                      </div>
+                      </>
                     ) : (
                       <p className="text-sm text-text-muted">Drop a task here to unschedule it.</p>
                     )}
+                  </div>
+                  <div aria-hidden="true" className="pointer-events-none absolute size-0 overflow-hidden">
                     {provided.placeholder}
                   </div>
                 </section>
@@ -2208,8 +2297,8 @@ export default function App() {
 
       <DragDropContext onDragEnd={handleDragEnd}>
         <main id="board" className="mt-8 scroll-mt-6" aria-label="Kanban board">
-          <div className="overflow-x-auto pb-2">
-            <div className="grid min-w-[1080px] grid-cols-4 gap-6">
+          <div className="snap-x snap-mandatory overflow-x-auto pb-3">
+            <div className="grid min-w-[960px] grid-cols-4 gap-4 sm:min-w-[1080px] sm:gap-6">
             {STAGES.map((stage) => {
               const stageTasks = visibleTasks.filter((task) => task.status === stage.id);
               const wipLimit = activeBoard.wipLimits?.[stage.id];
@@ -2218,7 +2307,7 @@ export default function App() {
               return (
                 <Droppable key={stage.id} droppableId={stage.id}>
                   {(provided, snapshot) => (
-                    <BoardColumn provided={provided} snapshot={snapshot} stage={stage}>
+                    <BoardColumn provided={provided} snapshot={snapshot} stage={stage} className="snap-start">
                       <header className="mb-4 flex items-center justify-between">
                         <h2
                           id={`${stage.id}-heading`}
@@ -2409,7 +2498,7 @@ export default function App() {
           </div>
         </div>
         <div className="mt-5 max-w-5xl overflow-hidden rounded-sm border border-brand-primary/15 bg-surface-card md:grid md:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
-          <div className="flex items-center gap-5 border-b border-brand-primary/15 p-5 md:border-b-0 md:border-r">
+          <div className="flex flex-col items-start gap-4 border-b border-brand-primary/15 p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-5 md:border-b-0 md:border-r">
             <Suspense fallback={<div className="size-[172px] shrink-0 rounded-full bg-brand-primary/10" />}>
               <StatusPieChart statusCounts={statusCounts} />
             </Suspense>
@@ -2426,7 +2515,7 @@ export default function App() {
               ))}
             </div>
           </div>
-          <dl className="grid grid-cols-3 divide-x divide-brand-primary/15 p-5">
+          <dl className="grid grid-cols-3 divide-x divide-brand-primary/15 p-4 sm:p-5">
             <div className="px-3 first:pl-0">
               <dt className="text-sm text-text-muted">Total tasks</dt>
               <dd className="mt-1 text-2xl font-semibold text-text-primary">{tasks.length}</dd>
@@ -2447,7 +2536,7 @@ export default function App() {
         </div>
       </div>
 
-      <footer className="mx-auto mt-8 flex max-w-screen-2xl items-center justify-between gap-4 border-t border-brand-primary/15 py-5 text-sm text-text-muted">
+      <footer className="mx-auto mt-8 flex max-w-screen-2xl flex-col items-start justify-between gap-2 border-t border-brand-primary/15 py-5 text-sm text-text-muted sm:flex-row sm:items-center sm:gap-4">
         <span className="font-medium text-text-primary">{project.name}</span>
       </footer>
       </div>
@@ -2838,10 +2927,10 @@ export default function App() {
             if (event.target === event.currentTarget) closeTeamSettings();
           }}
         >
-          <section role="dialog" aria-modal="true" aria-labelledby="team-settings-title" className="modal-panel w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="team-settings-title" className="modal-panel modal-panel-scroll w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl">
             <div className="mb-6">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
-              <h2 id="team-settings-title" className="mt-1 text-xl font-semibold text-text-primary">Customize team sections</h2>
+              <h2 ref={teamSettingsHeadingRef} id="team-settings-title" tabIndex={-1} className="mt-1 text-xl font-semibold text-text-primary">Customize team sections</h2>
               <p className="mt-2 text-sm text-text-muted">Organize boards under teams that match the way you work.</p>
             </div>
 

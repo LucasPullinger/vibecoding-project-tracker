@@ -120,9 +120,47 @@ body {
   animation: modal-panel 130ms ease-out;
 }
 
+@keyframes notice-toast {
+  0% {
+    opacity: 0;
+    transform: translateY(0.35rem);
+  }
+
+  12%, 76% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(0.2rem);
+  }
+}
+
+.notice-toast {
+  animation: notice-toast var(--notice-duration, 2500ms) ease-out both;
+}
+
+.modal-panel-scroll {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.modal-panel-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+button:focus:not(:focus-visible),
+summary:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .modal-backdrop,
-  .modal-panel {
+  .modal-panel,
+  .notice-toast {
     animation: none;
   }
 }
