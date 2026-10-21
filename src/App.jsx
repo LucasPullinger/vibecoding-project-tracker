@@ -18,7 +18,6 @@ import {
   Settings,
   SlidersHorizontal,
   Sun,
-  User,
 } from 'lucide-react';
 import {
   DEFAULT_ANCHORS,
@@ -59,10 +58,17 @@ export const STAGES = [
 export const TEAM = ['Teammate A', 'Teammate B', 'Teammate C'];
 const UNASSIGNED = 'Unassigned';
 const DEFAULT_PROJECT = { name: 'Anchor', team: TEAM };
+const DEFAULT_MEMBERS = [
+  { id: 'member-a', name: 'Teammate A', email: 'alex@anchor.local', role: 'Admin', avatar: '/member-a.png' },
+  { id: 'member-b', name: 'Teammate B', email: 'jamie@anchor.local', role: 'Member', avatar: '/member-b.png' },
+  { id: 'member-c', name: 'Teammate C', email: 'riley@anchor.local', role: 'Member', avatar: '/member-c.png' },
+];
 const DEFAULT_WORKSPACE_TEAMS = [
   { id: 'product', name: 'Product' },
   { id: 'design', name: 'Design' },
   { id: 'engineering', name: 'Engineering' },
+  { id: 'marketing', name: 'Marketing' },
+  { id: 'operations', name: 'Operations' },
 ];
 const EMPTY_WIP_LIMITS = Object.fromEntries(STAGES.map((stage) => [stage.id, null]));
 const PRIORITY_DETAILS = {
@@ -185,12 +191,25 @@ function isValidProject(value) {
     && value.team.every((member) => typeof member === 'string' && member.trim().length > 0);
 }
 
+function isValidMembers(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((member) => (
+    member
+    && typeof member.id === 'string'
+    && typeof member.name === 'string'
+    && member.name.trim().length > 0
+    && typeof member.email === 'string'
+    && typeof member.role === 'string'
+    && typeof member.avatar === 'string'
+  ));
+}
+
 function isValidWorkspaceTeams(value) {
   return Array.isArray(value) && value.length > 0 && value.every((team) => (
     team
     && typeof team.id === 'string'
     && typeof team.name === 'string'
     && team.name.trim().length > 0
+    && (team.memberIds === undefined || (Array.isArray(team.memberIds) && team.memberIds.every((id) => typeof id === 'string')))
   ));
 }
 
@@ -289,13 +308,65 @@ function PriorityBadge({ priority }) {
   );
 }
 
-function AssigneeBadge({ assignee }) {
+function MemberAvatar({ member, size = 'size-6' }) {
+  if (!member) return <span className={`${size} shrink-0 rounded-full bg-brand-primary/15`} aria-hidden="true" />;
+
+  return member.avatar ? (
+    <img src={member.avatar} alt="" className={`${size} shrink-0 rounded-full object-cover`} />
+  ) : (
+    <span className={`inline-flex ${size} shrink-0 items-center justify-center rounded-full bg-brand-primary text-[10px] font-semibold text-surface-card`} aria-hidden="true">
+      {member.name.slice(0, 2).toUpperCase()}
+    </span>
+  );
+}
+
+function AssigneeBadge({ assignee, assignees, members, isOpen, onToggle, onAssign }) {
   const isUnassigned = assignee === UNASSIGNED;
+  const member = members.find((item) => item.name === assignee);
 
   return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-sm border border-brand-primary/20 px-2 py-0.5 text-xs font-medium text-brand-primary">
-      {!isUnassigned && <User aria-hidden="true" size={14} strokeWidth={2} />}
-      <span className="truncate">{assignee}</span>
+    <span data-assignee-picker className="relative inline-flex">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+        title={isUnassigned ? 'Assign task' : `Assigned to ${assignee}`}
+        aria-label={isUnassigned ? 'Assign task' : `Change assignee, currently ${assignee}`}
+        aria-expanded={isOpen}
+        className={`flex size-7 items-center justify-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${
+          isUnassigned
+            ? 'border-dashed border-brand-primary/35 text-text-muted hover:bg-brand-primary/10'
+            : 'border-brand-primary/25 hover:ring-2 hover:ring-brand-primary/20'
+        }`}
+      >
+        {isUnassigned ? <span aria-hidden="true" className="text-base leading-none">+</span> : <MemberAvatar member={member} size="size-6" />}
+      </button>
+      {isOpen && (
+        <span onClick={(event) => event.stopPropagation()} className="absolute bottom-[calc(100%+0.5rem)] left-0 z-20 w-48 rounded-sm border border-brand-primary/20 bg-surface-card p-2 text-left shadow-lg">
+          <span className="mb-1 block px-2 pt-1 text-xs font-medium uppercase tracking-wide text-text-muted">Assign task</span>
+          {assignees.map((name) => {
+            const optionMember = members.find((item) => item.name === name);
+            const selected = name === assignee;
+
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAssign(name);
+                }}
+                className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-brand-primary/10 ${selected ? 'bg-brand-primary/10 text-text-primary' : 'text-text-muted'}`}
+              >
+                {name === UNASSIGNED ? <span className="flex size-5 items-center justify-center rounded-full border border-dashed border-brand-primary/35 text-xs">+</span> : <MemberAvatar member={optionMember} size="size-5" />}
+                <span className="truncate">{name}</span>
+              </button>
+            );
+          })}
+        </span>
+      )}
     </span>
   );
 }
@@ -437,6 +508,16 @@ function createTaskId() {
   return globalThis.crypto?.randomUUID?.() ?? String(Date.now());
 }
 
+function createTeamId(name) {
+  const base = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'team';
+
+  return `${base}-${createTaskId().slice(0, 8)}`;
+}
+
 function isIsoDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -531,7 +612,7 @@ export default function App() {
     {},
     isValidSubtasksByTask,
   );
-  const [teams] = useLocalStorage(
+  const [teams, setTeams] = useLocalStorage(
     'vibetracker.workspace-teams',
     DEFAULT_WORKSPACE_TEAMS,
     isValidWorkspaceTeams,
@@ -573,6 +654,16 @@ export default function App() {
     DEFAULT_PROJECT,
     isValidProject,
   );
+  const [members] = useLocalStorage(
+    'vibetracker.members',
+    DEFAULT_MEMBERS,
+    isValidMembers,
+  );
+  const [currentUserId] = useLocalStorage(
+    'vibetracker.current-user',
+    DEFAULT_MEMBERS[0].id,
+    (value) => typeof value === 'string',
+  );
   const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0];
   const tasks = activeBoard.tasks;
   const anchors = activeBoard.anchors;
@@ -589,6 +680,7 @@ export default function App() {
   const [anchorLabel, setAnchorLabel] = useState('');
   const [anchorError, setAnchorError] = useState('');
   const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
+  const [isTeamSettingsOpen, setIsTeamSettingsOpen] = useState(false);
   const [isCreateBoardOpen, setIsCreateBoardOpen] = useState(false);
   const [editingBoardId, setEditingBoardId] = useState(null);
   const [isConfirmingBoardDelete, setIsConfirmingBoardDelete] = useState(false);
@@ -596,6 +688,9 @@ export default function App() {
   const [boardError, setBoardError] = useState('');
   const [projectForm, setProjectForm] = useState(DEFAULT_PROJECT);
   const [teamMemberDraft, setTeamMemberDraft] = useState('');
+  const [teamForm, setTeamForm] = useState([]);
+  const [teamSectionDraft, setTeamSectionDraft] = useState('');
+  const [teamSectionError, setTeamSectionError] = useState('');
   const [projectError, setProjectError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isConfirmingTaskDelete, setIsConfirmingTaskDelete] = useState(false);
@@ -612,6 +707,7 @@ export default function App() {
   const [calendarMonth, setCalendarMonth] = useState(() => getLocalDate().slice(0, 7));
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
+  const [assigneeMenuTaskId, setAssigneeMenuTaskId] = useState(null);
   const [isCopying, setIsCopying] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const titleInputRef = useRef(null);
@@ -619,6 +715,7 @@ export default function App() {
   const assigneeSelectRef = useRef(null);
   const anchorUrlInputRef = useRef(null);
   const projectNameInputRef = useRef(null);
+  const teamSectionInputRef = useRef(null);
   const boardNameInputRef = useRef(null);
   const filterDetailsRef = useRef(null);
   const triggerRef = useRef(null);
@@ -626,7 +723,16 @@ export default function App() {
   const isDark = theme === 'dark';
   const assignees = [UNASSIGNED, ...(activeBoard.members ?? project.team)];
   const activeTeam = teams.find((team) => team.id === activeBoard.teamId) ?? teams[0];
+  const currentUser = members.find((member) => member.id === currentUserId) ?? members[0];
   const activity = activeBoard.activity ?? [];
+  const workspaceMemberNames = [...new Set([...project.team, ...members.map((member) => member.name)])];
+
+  function memberNamesForTeam(teamId) {
+    const team = teams.find((item) => item.id === teamId);
+    const teamMembers = members.filter((member) => team?.memberIds?.includes(member.id));
+
+    return teamMembers.length > 0 ? teamMembers.map((member) => member.name) : workspaceMemberNames;
+  }
 
   function updateActiveBoard(field, value) {
     setBoards((current) => current.map((board) => {
@@ -665,6 +771,20 @@ export default function App() {
 
   function setArchivedTaskIds(value) {
     updateActiveBoard('archivedTaskIds', value);
+  }
+
+  function assignTaskFromCard(task, assignee) {
+    if (task.assignee === assignee) {
+      setAssigneeMenuTaskId(null);
+      return;
+    }
+
+    setTasks((current) => current.map((item) => (
+      item.id === task.id ? { ...item, assignee } : item
+    )));
+    logActivity(`Assigned “${task.title}” to ${assignee}.`);
+    setNotice(assignee === UNASSIGNED ? 'Task unassigned.' : `Assigned to ${assignee}.`);
+    setAssigneeMenuTaskId(null);
   }
 
   function getTaskDeliverableId(taskId) {
@@ -740,12 +860,30 @@ export default function App() {
   }, [isDark]);
 
   useEffect(() => {
-    if (!isModalOpen && !isProjectSettingsOpen && !isCreateBoardOpen && !isConfirmingTaskDelete) return undefined;
+    const migrationKey = 'vibetracker.workspace-teams-expanded';
+
+    try {
+      if (window.localStorage.getItem(migrationKey)) return;
+
+      setTeams((current) => {
+        const existingIds = new Set(current.map((team) => team.id));
+        return [
+          ...current,
+          ...DEFAULT_WORKSPACE_TEAMS.filter((team) => !existingIds.has(team.id)),
+        ];
+      });
+      window.localStorage.setItem(migrationKey, 'true');
+    } catch {}
+  }, [setTeams]);
+
+  useEffect(() => {
+    if (!isModalOpen && !isProjectSettingsOpen && !isTeamSettingsOpen && !isCreateBoardOpen && !isConfirmingTaskDelete) return undefined;
 
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') {
         if (isConfirmingTaskDelete) setIsConfirmingTaskDelete(false);
         else if (isCreateBoardOpen) closeBoardCreator();
+        else if (isTeamSettingsOpen) closeTeamSettings();
         else if (isProjectSettingsOpen) closeProjectSettings();
         else closeModal();
       }
@@ -755,12 +893,13 @@ export default function App() {
     window.requestAnimationFrame(() => {
       if (isConfirmingTaskDelete) return;
       if (isCreateBoardOpen) boardNameInputRef.current?.focus();
+      else if (isTeamSettingsOpen) teamSectionInputRef.current?.focus();
       else if (isProjectSettingsOpen) projectNameInputRef.current?.focus();
       else titleInputRef.current?.focus();
     });
 
     return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [isModalOpen, isProjectSettingsOpen, isCreateBoardOpen, isConfirmingTaskDelete]);
+  }, [isModalOpen, isProjectSettingsOpen, isTeamSettingsOpen, isCreateBoardOpen, isConfirmingTaskDelete]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentTime(new Date()), 60 * 1000);
@@ -793,14 +932,23 @@ export default function App() {
       }
     };
 
-    document.addEventListener('pointerdown', closeFilterOnOutsideClick);
-    return () => document.removeEventListener('pointerdown', closeFilterOnOutsideClick);
+    document.addEventListener('pointerdown', closeFilterOnOutsideClick, true);
+    return () => document.removeEventListener('pointerdown', closeFilterOnOutsideClick, true);
+  }, []);
+
+  useEffect(() => {
+    const closeAssigneePickerOnOutsideClick = (event) => {
+      if (!event.target.closest('[data-assignee-picker]')) setAssigneeMenuTaskId(null);
+    };
+
+    document.addEventListener('pointerdown', closeAssigneePickerOnOutsideClick, true);
+    return () => document.removeEventListener('pointerdown', closeAssigneePickerOnOutsideClick, true);
   }, []);
 
   useEffect(() => {
     const handleShortcut = (event) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-      if (isModalOpen || isProjectSettingsOpen || isCreateBoardOpen) return;
+      if (isModalOpen || isProjectSettingsOpen || isTeamSettingsOpen || isCreateBoardOpen) return;
 
       if (event.key === '/') {
         event.preventDefault();
@@ -817,7 +965,7 @@ export default function App() {
 
     document.addEventListener('keydown', handleShortcut);
     return () => document.removeEventListener('keydown', handleShortcut);
-  }, [isModalOpen, isProjectSettingsOpen, isCreateBoardOpen]);
+  }, [isModalOpen, isProjectSettingsOpen, isTeamSettingsOpen, isCreateBoardOpen]);
 
   function closeModal() {
     setEditingTask(null);
@@ -839,6 +987,81 @@ export default function App() {
     setIsProjectSettingsOpen(false);
     setProjectError('');
     window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function openTeamSettings(event) {
+    triggerRef.current = event.currentTarget;
+    setTeamForm(teams.map((team) => ({ ...team })));
+    setTeamSectionDraft('');
+    setTeamSectionError('');
+    setIsTeamSettingsOpen(true);
+  }
+
+  function closeTeamSettings() {
+    setIsTeamSettingsOpen(false);
+    setTeamSectionError('');
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function addTeamSection(event) {
+    event.preventDefault();
+    const name = teamSectionDraft.trim();
+
+    if (!name) return;
+    if (teamForm.some((team) => team.name.toLowerCase() === name.toLowerCase())) {
+      setTeamSectionError('Choose a unique team name.');
+      return;
+    }
+
+    setTeamForm((current) => [...current, { id: createTeamId(name), name }]);
+    setTeamSectionDraft('');
+    setTeamSectionError('');
+  }
+
+  function removeTeamSection(team) {
+    if (teamForm.length === 1) {
+      setTeamSectionError('Keep at least one team section.');
+      return;
+    }
+    if (boards.some((board) => board.teamId === team.id)) {
+      setTeamSectionError(`Move or edit boards in ${team.name} before removing this section.`);
+      return;
+    }
+
+    setTeamForm((current) => current.filter((item) => item.id !== team.id));
+    setTeamSectionError('');
+  }
+
+  function toggleTeamMember(teamId, memberId) {
+    setTeamForm((current) => current.map((team) => {
+      if (team.id !== teamId) return team;
+
+      const memberIds = team.memberIds ?? members.map((member) => member.id);
+      return {
+        ...team,
+        memberIds: memberIds.includes(memberId)
+          ? memberIds.filter((id) => id !== memberId)
+          : [...memberIds, memberId],
+      };
+    }));
+  }
+
+  function saveTeamSettings(event) {
+    event.preventDefault();
+    const nextTeams = teamForm.map((team) => ({ ...team, name: team.name.trim() }));
+
+    if (nextTeams.some((team) => !team.name)) {
+      setTeamSectionError('Every team needs a name.');
+      return;
+    }
+    if (new Set(nextTeams.map((team) => team.name.toLowerCase())).size !== nextTeams.length) {
+      setTeamSectionError('Choose a unique name for each team.');
+      return;
+    }
+
+    setTeams(nextTeams);
+    setNotice('Team sections saved.');
+    closeTeamSettings();
   }
 
   function addTeamMember(event) {
@@ -889,7 +1112,7 @@ export default function App() {
 
   function openBoardCreator(teamId, event) {
     triggerRef.current = event.currentTarget;
-    setBoardForm({ name: '', teamId, members: [...project.team], wipLimits: { ...EMPTY_WIP_LIMITS }, template: 'empty' });
+    setBoardForm({ name: '', teamId, members: memberNamesForTeam(teamId), wipLimits: { ...EMPTY_WIP_LIMITS }, template: 'empty' });
     setBoardError('');
     setEditingBoardId(null);
     setIsConfirmingBoardDelete(false);
@@ -1378,6 +1601,22 @@ export default function App() {
         </a>
 
         <div className="flex items-center gap-2">
+          <details className="group relative">
+            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-sm border border-brand-primary/20 bg-surface-card px-2 py-1.5 text-left text-sm text-text-primary shadow-sm marker:hidden transition-colors hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page">
+              <MemberAvatar member={currentUser} size="size-6" />
+              <span className="hidden max-w-24 truncate sm:block">{currentUser.name}</span>
+            </summary>
+            <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-52 rounded-sm border border-brand-primary/20 bg-surface-card p-3 text-sm shadow-lg">
+              <div className="flex items-center gap-2">
+                <MemberAvatar member={currentUser} size="size-9" />
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-text-primary">{currentUser.name}</p>
+                  <p className="truncate text-xs text-text-muted">{currentUser.role}</p>
+                </div>
+              </div>
+              <p className="mt-3 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">Current user · {currentUser.email}</p>
+            </div>
+          </details>
           <button
             type="button"
             onClick={openProjectSettings}
@@ -1456,6 +1695,14 @@ export default function App() {
                 className="w-full rounded-sm border border-brand-primary/20 bg-surface-card py-2 pl-9 pr-3 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
               />
             </label>
+            <button
+              type="button"
+              onClick={openTeamSettings}
+              className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-text-muted transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+            >
+              <Settings aria-hidden="true" size={14} strokeWidth={2} />
+              Manage teams
+            </button>
             <div className="mt-5 space-y-5">
               {teams.map((team) => {
                 const teamBoards = matchingBoards.filter((board) => board.teamId === team.id);
@@ -1877,7 +2124,7 @@ export default function App() {
 
       {activeWorkspaceTab === 'board' && (
       <>
-      <details ref={filterDetailsRef} className="group relative mb-6" aria-labelledby="filter-heading">
+      <details ref={filterDetailsRef} className="group relative mb-6 w-fit" aria-labelledby="filter-heading">
         <summary className="flex w-fit cursor-pointer list-none items-center gap-3 rounded-sm border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm font-medium text-text-primary shadow-sm hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
           <div className="flex min-w-0 items-center gap-3">
             <span className="text-due-warning">
@@ -2042,7 +2289,14 @@ export default function App() {
                                       </span>
                                       <div className="mt-4 border-t border-brand-primary/10 pt-3 text-xs text-text-muted">
                                         <div className="flex flex-wrap items-center gap-2">
-                                          <AssigneeBadge assignee={task.assignee} />
+                                          <AssigneeBadge
+                                            assignee={task.assignee}
+                                            assignees={assignees}
+                                            members={members}
+                                            isOpen={assigneeMenuTaskId === task.id}
+                                            onToggle={() => setAssigneeMenuTaskId((current) => (current === task.id ? null : task.id))}
+                                            onAssign={(assignee) => assignTaskFromCard(task, assignee)}
+                                          />
                                           <PriorityBadge priority={taskPriorities[task.id] ?? 'medium'} />
                                         </div>
                                         <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
@@ -2577,6 +2831,116 @@ export default function App() {
         </div>
       )}
 
+      {isTeamSettingsOpen && (
+        <div
+          className="modal-backdrop fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeTeamSettings();
+          }}
+        >
+          <section role="dialog" aria-modal="true" aria-labelledby="team-settings-title" className="modal-panel w-full max-w-lg rounded-lg bg-surface-card p-6 shadow-xl">
+            <div className="mb-6">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
+              <h2 id="team-settings-title" className="mt-1 text-xl font-semibold text-text-primary">Customize team sections</h2>
+              <p className="mt-2 text-sm text-text-muted">Organize boards under teams that match the way you work.</p>
+            </div>
+
+            <form onSubmit={saveTeamSettings}>
+              <div className="space-y-2">
+                {teamForm.map((team) => (
+                  <div key={team.id} className="flex items-center gap-2 rounded-sm border border-brand-primary/15 bg-surface-page/60 p-2">
+                    <input
+                      type="text"
+                      value={team.name}
+                      onChange={(event) => {
+                        setTeamForm((current) => current.map((item) => (
+                          item.id === team.id ? { ...item, name: event.target.value } : item
+                        )));
+                        if (teamSectionError) setTeamSectionError('');
+                      }}
+                      aria-label={`Name for ${team.name}`}
+                      className="min-w-0 flex-1 rounded-sm border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeTeamSection(team)}
+                      className="rounded-sm px-2 py-1.5 text-xs font-medium text-text-muted hover:bg-type-bug/10 hover:text-type-bug focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <fieldset className="mt-5 rounded-sm border border-brand-primary/15 bg-surface-page/60 p-3">
+                <legend className="px-1 text-sm font-medium text-text-primary">Team members</legend>
+                <p className="mt-1 text-xs text-text-muted">Choose who should be available by default on each team’s boards.</p>
+                <div className="mt-3 space-y-3">
+                  {teamForm.map((team) => {
+                    const selectedIds = team.memberIds ?? members.map((member) => member.id);
+
+                    return (
+                      <section key={team.id} className="border-t border-brand-primary/10 pt-3 first:border-0 first:pt-0">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">{team.name || 'Unnamed team'}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {members.map((member) => (
+                            <label key={member.id} className="flex cursor-pointer items-center gap-1.5 rounded-sm border border-brand-primary/15 bg-surface-card px-2 py-1 text-xs text-text-primary">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.includes(member.id)}
+                                onChange={() => toggleTeamMember(team.id, member.id)}
+                                className="size-3.5 accent-current"
+                              />
+                              <MemberAvatar member={member} size="size-4" />
+                              {member.name}
+                            </label>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <div className="mt-4 flex gap-2">
+                <label className="min-w-0 flex-1">
+                  <span className="sr-only">New team section</span>
+                  <input
+                    ref={teamSectionInputRef}
+                    type="text"
+                    value={teamSectionDraft}
+                    onChange={(event) => {
+                      setTeamSectionDraft(event.target.value);
+                      if (teamSectionError) setTeamSectionError('');
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') addTeamSection(event);
+                    }}
+                    placeholder="Add a team, e.g. Marketing"
+                    className="w-full rounded-sm border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                  />
+                </label>
+                <button type="button" onClick={addTeamSection} className="rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">
+                  Add team
+                </button>
+              </div>
+
+              <p className="mt-3 text-xs text-text-muted">To remove a team that has boards, first move those boards using their settings button.</p>
+              {teamSectionError && <p className="mt-3 text-sm text-type-bug" role="alert">{teamSectionError}</p>}
+
+              <div className="mt-6 flex justify-end gap-3 border-t border-brand-primary/10 pt-4">
+                <button type="button" onClick={closeTeamSettings} className="rounded-md border border-brand-primary/20 px-4 py-2 text-sm font-medium text-text-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">
+                  Cancel
+                </button>
+                <button type="submit" className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2">
+                  Save teams
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
       {isProjectSettingsOpen && (
         <div
           className="modal-backdrop fixed inset-0 z-10 flex items-center justify-center bg-text-primary/45 p-4"
@@ -2621,7 +2985,10 @@ export default function App() {
                 <ul className="mt-4 space-y-2">
                   {projectForm.team.map((member) => (
                     <li key={member} className="flex items-center justify-between gap-3 border-b border-brand-primary/10 pb-2 text-sm text-text-primary last:border-0 last:pb-0">
-                      <span>{member}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <MemberAvatar member={members.find((item) => item.name === member)} size="size-6" />
+                        <span className="truncate">{member}</span>
+                      </span>
                       <button
                         type="button"
                         onClick={() => removeTeamMember(member)}
@@ -2779,7 +3146,7 @@ export default function App() {
                 <legend className="px-1 text-sm font-medium text-text-primary">Board members</legend>
                 <p className="mt-1 text-xs text-text-muted">Only selected people can be assigned tasks on this board.</p>
                 <div className="mt-4 space-y-2">
-                  {project.team.map((member) => (
+                  {workspaceMemberNames.map((member) => (
                     <label key={member} className="flex cursor-pointer items-center gap-3 rounded-sm bg-surface-card px-3 py-2 text-sm text-text-primary">
                       <input
                         type="checkbox"
@@ -2787,6 +3154,7 @@ export default function App() {
                         onChange={() => toggleBoardMember(member)}
                         className="size-4 accent-current"
                       />
+                      <MemberAvatar member={members.find((item) => item.name === member)} size="size-5" />
                       {member}
                     </label>
                   ))}
