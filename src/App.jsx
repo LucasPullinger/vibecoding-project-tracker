@@ -71,6 +71,22 @@ const DEFAULT_WORKSPACE_TEAMS = [
   { id: 'operations', name: 'Operations' },
 ];
 const EMPTY_WIP_LIMITS = Object.fromEntries(STAGES.map((stage) => [stage.id, null]));
+const EMPTY_BOARD = {
+  id: '',
+  name: '',
+  teamId: '',
+  members: [],
+  tasks: [],
+  anchors: [],
+  subtasks: {},
+  deliverableTasks: {},
+  taskPriorities: {},
+  taskComments: {},
+  archivedTaskIds: [],
+  blockedTaskIds: [],
+  activity: [],
+  wipLimits: EMPTY_WIP_LIMITS,
+};
 const PRIORITY_DETAILS = {
   low: { label: 'Low', className: 'border-due-neutral/30 bg-due-neutral/10 text-due-neutral' },
   medium: { label: 'Medium', className: 'border-due-warning/30 bg-due-warning/10 text-due-warning' },
@@ -175,10 +191,16 @@ function isValidTaskComments(value) {
       && typeof comment.id === 'string'
       && typeof comment.body === 'string'
       && typeof comment.timestamp === 'string'
+      && (comment.authorId === undefined || typeof comment.authorId === 'string')
+      && (comment.authorName === undefined || typeof comment.authorName === 'string')
     )));
 }
 
 function isValidArchivedTaskIds(value) {
+  return Array.isArray(value) && value.every((taskId) => typeof taskId === 'string');
+}
+
+function isValidBlockedTaskIds(value) {
   return Array.isArray(value) && value.every((taskId) => typeof taskId === 'string');
 }
 
@@ -231,6 +253,7 @@ function isValidBoards(value) {
     && (board.taskPriorities === undefined || isValidTaskPriorities(board.taskPriorities))
     && (board.taskComments === undefined || isValidTaskComments(board.taskComments))
     && (board.archivedTaskIds === undefined || isValidArchivedTaskIds(board.archivedTaskIds))
+    && (board.blockedTaskIds === undefined || isValidBlockedTaskIds(board.blockedTaskIds))
     && (board.activity === undefined || (Array.isArray(board.activity) && board.activity.every((entry) => (
       entry && typeof entry.id === 'string' && typeof entry.message === 'string' && typeof entry.timestamp === 'string'
     ))))
@@ -559,6 +582,7 @@ function createEmptyForm() {
     dueDate: '',
     deliverableId: '',
     priority: 'medium',
+    isBlocked: false,
     context: '',
     contextTool: '',
     subtasks: [],
@@ -619,18 +643,7 @@ export default function App() {
   );
   const [boards, setBoards] = useLocalStorage(
     'vibetracker.boards',
-    [{
-      id: 'board-main',
-      name: 'Main board',
-      teamId: DEFAULT_WORKSPACE_TEAMS[0].id,
-      tasks: legacyTasks,
-      anchors: legacyAnchors,
-      subtasks: legacySubtasks,
-      deliverableTasks: {},
-      taskPriorities: {},
-      taskComments: {},
-      archivedTaskIds: [],
-    }],
+    [],
     isValidBoards,
   );
   const [activeBoardId, setActiveBoardId] = useLocalStorage(
@@ -664,7 +677,7 @@ export default function App() {
     DEFAULT_MEMBERS[0].id,
     (value) => typeof value === 'string',
   );
-  const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0];
+  const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0] ?? EMPTY_BOARD;
   const tasks = activeBoard.tasks;
   const anchors = activeBoard.anchors;
   const subtasksByTask = activeBoard.subtasks;
@@ -672,10 +685,12 @@ export default function App() {
   const taskPriorities = activeBoard.taskPriorities ?? {};
   const taskComments = activeBoard.taskComments ?? {};
   const archivedTaskIds = activeBoard.archivedTaskIds ?? [];
+  const blockedTaskIds = activeBoard.blockedTaskIds ?? [];
   const activeTasks = tasks.filter((task) => !archivedTaskIds.includes(task.id));
   const archivedTasks = tasks.filter((task) => archivedTaskIds.includes(task.id));
   const [editingTask, setEditingTask] = useState(null);
   const [editingAnchorId, setEditingAnchorId] = useState(null);
+  const [isCreatingAnchor, setIsCreatingAnchor] = useState(false);
   const [anchorUrl, setAnchorUrl] = useState('');
   const [anchorLabel, setAnchorLabel] = useState('');
   const [anchorError, setAnchorError] = useState('');
@@ -737,6 +752,8 @@ export default function App() {
   }
 
   function updateActiveBoard(field, value) {
+    if (!activeBoard.id) return;
+
     setBoards((current) => current.map((board) => {
       if (board.id !== activeBoard.id) return board;
 
@@ -773,6 +790,10 @@ export default function App() {
 
   function setArchivedTaskIds(value) {
     updateActiveBoard('archivedTaskIds', value);
+  }
+
+  function setBlockedTaskIds(value) {
+    updateActiveBoard('blockedTaskIds', value);
   }
 
   function assignTaskFromCard(task, assignee) {
@@ -834,7 +855,13 @@ export default function App() {
     setTaskComments((current = {}) => ({
       ...current,
       [editingTask.id]: [
-        { id: createTaskId(), body, timestamp: new Date().toISOString() },
+        {
+          id: createTaskId(),
+          body,
+          timestamp: new Date().toISOString(),
+          authorId: currentUser?.id,
+          authorName: currentUser?.name,
+        },
         ...(current[editingTask.id] ?? []),
       ],
     }));
@@ -872,6 +899,7 @@ export default function App() {
         : `removed the due date from ${taskTitle}`);
     }
     if ((taskPriorities[task.id] ?? 'medium') !== details.priority) changes.push(`set ${taskTitle} priority to ${details.priority}`);
+    if (blockedTaskIds.includes(task.id) !== details.isBlocked) changes.push(`${details.isBlocked ? 'blocked' : 'unblocked'} ${taskTitle}`);
     if (getTaskDeliverableId(task.id) !== details.deliverableId) {
       changes.push(details.deliverableId
         ? `linked ${taskTitle} to ${deliverableLabel(details.deliverableId)}`
@@ -1248,6 +1276,7 @@ export default function App() {
         taskPriorities: {},
         taskComments: {},
         archivedTaskIds: [],
+        blockedTaskIds: [],
         activity: [],
         wipLimits: boardForm.wipLimits,
       };
@@ -1261,15 +1290,9 @@ export default function App() {
   }
 
   function deleteBoard() {
-    if (boards.length === 1) {
-      setBoardError('Keep at least one board in the workspace.');
-      setIsConfirmingBoardDelete(false);
-      return;
-    }
-
     const remainingBoards = boards.filter((board) => board.id !== editingBoardId);
     setBoards(remainingBoards);
-    setActiveBoardId(remainingBoards[0].id);
+    setActiveBoardId(remainingBoards[0]?.id ?? '');
     clearFilters();
     setNotice('Board deleted.');
     closeBoardCreator();
@@ -1283,6 +1306,11 @@ export default function App() {
   }
 
   function openCreate(event) {
+    if (!activeBoard.id) {
+      openBoardCreator(teams[0]?.id ?? DEFAULT_WORKSPACE_TEAMS[0].id, event);
+      return;
+    }
+
     triggerRef.current = event?.currentTarget ?? null;
     setForm(createEmptyForm());
     setErrors({});
@@ -1303,6 +1331,7 @@ export default function App() {
       dueDate: task.dueDate ?? '',
       deliverableId: getTaskDeliverableId(task.id),
       priority: taskPriorities[task.id] ?? 'medium',
+      isBlocked: blockedTaskIds.includes(task.id),
       context: task.context,
       contextTool: task.contextTool ?? '',
       subtasks: subtasksByTask[task.id] ?? [],
@@ -1412,6 +1441,11 @@ export default function App() {
         task.id === editingTask.id ? { ...task, ...editableFields, ...contextFields } : task
       )));
       setTaskPriorities((current = {}) => ({ ...current, [editingTask.id]: form.priority }));
+      setBlockedTaskIds((current = []) => (
+        form.isBlocked
+          ? [...new Set([...current, editingTask.id])]
+          : current.filter((taskId) => taskId !== editingTask.id)
+      ));
       if (form.status !== 'done') {
         setArchivedTaskIds((current = []) => current.filter((taskId) => taskId !== editingTask.id));
       }
@@ -1425,6 +1459,7 @@ export default function App() {
       logActivity(describeTaskChanges(editingTask, editableFields, {
         contextChanged,
         deliverableId: form.deliverableId,
+        isBlocked: form.isBlocked,
         priority: form.priority,
         subtasks: form.subtasks,
       }));
@@ -1442,10 +1477,11 @@ export default function App() {
         },
       ]);
       setTaskPriorities((current = {}) => ({ ...current, [taskId]: form.priority }));
+      if (form.isBlocked) setBlockedTaskIds((current = []) => [...new Set([...current, taskId])]);
       assignTaskToDeliverable(taskId, form.deliverableId);
       saveSubtasks(taskId, form.subtasks);
       setNotice('Task created.');
-      logActivity(`created ${editableFields.type} task “${editableFields.title}” in ${stageLabel(editableFields.status)}, assigned to ${editableFields.assignee}`);
+      logActivity(`created ${form.isBlocked ? 'blocked ' : ''}${editableFields.type} task “${editableFields.title}” in ${stageLabel(editableFields.status)}, assigned to ${editableFields.assignee}`);
     }
 
     closeModal();
@@ -1473,6 +1509,7 @@ export default function App() {
       return next;
     });
     setArchivedTaskIds((current = []) => current.filter((taskId) => taskId !== editingTask.id));
+    setBlockedTaskIds((current = []) => current.filter((taskId) => taskId !== editingTask.id));
     logActivity(`deleted task “${editingTask.title}” and its related details`);
     setNotice('Task deleted.');
     closeModal();
@@ -1527,13 +1564,18 @@ export default function App() {
 
   function openAnchorEditor(anchor) {
     setEditingAnchorId(anchor.id);
+    setIsCreatingAnchor(false);
     setAnchorUrl(anchor.url ?? '');
     setAnchorLabel(anchor.label);
     setAnchorError('');
   }
 
-  function closeAnchorEditor() {
+  function closeAnchorEditor(keepNewAnchor = false) {
+    if (isCreatingAnchor && editingAnchorId && !keepNewAnchor) {
+      setAnchors((current) => current.filter((anchor) => anchor.id !== editingAnchorId));
+    }
     setEditingAnchorId(null);
+    setIsCreatingAnchor(false);
     setAnchorUrl('');
     setAnchorLabel('');
     setAnchorError('');
@@ -1559,7 +1601,29 @@ export default function App() {
       item.id === anchor.id ? { ...item, label, url: url || null } : item
     )));
     setNotice('Deliverable saved.');
-    closeAnchorEditor();
+    closeAnchorEditor(true);
+  }
+
+  function addAnchor() {
+    const anchor = { id: `deliverable-${createTaskId()}`, label: 'New deliverable', url: null };
+    setAnchors((current) => [...current, anchor]);
+    setEditingAnchorId(anchor.id);
+    setIsCreatingAnchor(true);
+    setAnchorLabel(anchor.label);
+    setAnchorUrl('');
+    setAnchorError('');
+  }
+
+  function deleteAnchor(anchor) {
+    setAnchors((current) => current.filter((item) => item.id !== anchor.id));
+    setDeliverableTasks((current = {}) => {
+      const next = { ...current };
+      delete next[anchor.id];
+      return next;
+    });
+    setNotice('Deliverable removed.');
+    setIsCreatingAnchor(false);
+    setEditingAnchorId(null);
   }
 
   function removeAnchorLink(anchor) {
@@ -1639,7 +1703,7 @@ export default function App() {
   }
 
   return (
-    <div className={`${isDark ? 'dark ' : ''}min-h-screen bg-surface-page transition-colors duration-200`}>
+    <div className={`${isDark ? 'dark ' : ''}flex min-h-screen flex-col bg-surface-page transition-colors duration-200`}>
       <header className="relative mb-4 border-b border-brand-primary/15 bg-surface-card shadow-sm sm:mb-8">
         <button
           type="button"
@@ -1725,14 +1789,14 @@ export default function App() {
             className="rounded-sm bg-brand-primary px-3 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page sm:px-4"
           >
             <span className="sm:hidden" aria-hidden="true">+</span>
-            <span className="hidden sm:inline">+ New task</span>
-            <span className="sr-only sm:hidden">New task</span>
+            <span className="hidden sm:inline">{boards.length === 0 ? '+ New board' : '+ New task'}</span>
+            <span className="sr-only sm:hidden">{boards.length === 0 ? 'New board' : 'New task'}</span>
           </button>
         </div>
         </div>
       </header>
 
-      <div className="px-3 pb-6 sm:px-6 lg:px-8">
+      <div className="flex flex-1 flex-col px-3 pb-6 sm:px-6 lg:px-8">
 
       {notice && (
         <div
@@ -1753,7 +1817,7 @@ export default function App() {
         </div>
       )}
 
-      <div className="mx-auto flex max-w-screen-2xl">
+      <div className="mx-auto flex w-full max-w-screen-2xl flex-1">
         {isMobileSidebarOpen && <button type="button" aria-label="Close sidebar" onClick={() => setIsMobileSidebarOpen(false)} className="fixed inset-0 z-20 bg-text-primary/35 lg:hidden" />}
         <aside
           aria-hidden={!isSidebarOpen && !isMobileSidebarOpen}
@@ -1856,6 +1920,23 @@ export default function App() {
         </aside>
 
         <div className="min-w-0 flex-1">
+        {boards.length === 0 ? (
+          <section id="board" className="flex min-h-[26rem] items-center justify-center rounded-sm border border-dashed border-brand-primary/25 bg-surface-card px-6 text-center" aria-labelledby="empty-workspace-heading">
+            <div className="max-w-md">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
+              <h1 id="empty-workspace-heading" className="mt-2 text-2xl font-semibold text-text-primary">No boards yet</h1>
+              <p className="mt-3 text-sm leading-6 text-text-muted">Create a board when you are ready to organise work. You can choose a team, members, and a starter setup.</p>
+              <button
+                type="button"
+                onClick={(event) => openBoardCreator(teams[0]?.id ?? DEFAULT_WORKSPACE_TEAMS[0].id, event)}
+                className="mt-6 rounded-sm bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
+              >
+                Create a board
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
       <nav className="mb-6 flex overflow-x-auto border-b border-brand-primary/15" aria-label="Board views" role="tablist">
         <button
           type="button"
@@ -1902,9 +1983,25 @@ export default function App() {
         </summary>
 
         <div className="border-t border-brand-primary/15 p-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-text-muted">Add only the deliverables this board needs.</p>
+            <button
+              type="button"
+              onClick={addAnchor}
+              className="rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+            >
+              + Add deliverable
+            </button>
+          </div>
+          {anchors.length === 0 ? (
+            <div className="rounded-sm border border-dashed border-brand-primary/20 px-4 py-10 text-center">
+              <p className="text-sm font-medium text-text-primary">No deliverables yet</p>
+              <p className="mt-1 text-sm text-text-muted">Add one whenever this board needs a milestone.</p>
+            </div>
+          ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {anchors.map((anchor) => {
-            const Icon = ANCHOR_DETAILS[anchor.id];
+            const Icon = ANCHOR_DETAILS[anchor.id] ?? Flag;
             const isEditing = editingAnchorId === anchor.id;
             const assignedTasks = tasks.filter((task) => (
               (deliverableTasks[anchor.id] ?? []).includes(task.id)
@@ -1982,6 +2079,13 @@ export default function App() {
                       >
                         Cancel
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteAnchor(anchor)}
+                        className="rounded-md px-3 py-2 text-sm font-medium text-type-bug hover:bg-type-bug/10 focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                      >
+                        Remove deliverable
+                      </button>
                       {anchor.url && (
                         <button
                           type="button"
@@ -2049,6 +2153,7 @@ export default function App() {
             );
           })}
           </div>
+          )}
         </div>
       </details>
       )}
@@ -2329,6 +2434,7 @@ export default function App() {
                             ? 'text-due-neutral'
                             : 'text-text-primary';
                           const taskSubtasks = subtasksByTask[task.id] ?? [];
+                          const isBlocked = blockedTaskIds.includes(task.id);
 
                           return (
                             <Draggable
@@ -2358,13 +2464,15 @@ export default function App() {
                                 >
                                   <article
                                     onClick={(event) => openEdit(task, event)}
-                                    className={`relative rounded-md border border-brand-primary/15 border-l-4 bg-surface-card shadow-sm transition-[transform,box-shadow] duration-200 ease-out motion-reduce:transition-none ${
+                                    className={`relative overflow-hidden rounded-md border border-brand-primary/15 border-l-4 bg-surface-card shadow-sm transition-[transform,box-shadow] duration-200 ease-out motion-reduce:transition-none ${
                                       dragSnapshot.isDragging
                                         ? 'scale-[1.02] cursor-grabbing shadow-xl'
                                         : 'hover:-translate-y-0.5 hover:shadow-md'
-                                    } ${deadlineDetails.cardClassName} ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
+                                    } ${isBlocked ? 'border-type-bug/50' : ''} ${deadlineDetails.cardClassName} ${TASK_TYPE_DETAILS[task.type].stripeClassName}`}
                                   >
-                                    <div className="p-4 pr-12">
+                                    {isBlocked && <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-type-bug/10" />}
+                                    {isBlocked && <span className="absolute right-10 top-2 z-10 rounded-sm bg-type-bug px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-surface-card">Blocked</span>}
+                                    <div className="relative z-10 p-4 pr-12">
                                       <div>
                                         <span className="block text-sm font-medium leading-5 text-text-primary">
                                           {task.title}
@@ -2403,7 +2511,7 @@ export default function App() {
                                     </div>
                                     <span
                                       aria-hidden="true"
-                                      className="pointer-events-none absolute right-2 top-2 rounded p-1.5 text-text-muted"
+                                      className="pointer-events-none absolute right-2 top-2 z-10 rounded p-1.5 text-text-muted"
                                     >
                                       <GripVertical aria-hidden="true" size={18} strokeWidth={2} />
                                     </span>
@@ -2492,8 +2600,7 @@ export default function App() {
       <section className="mt-12 border-t border-brand-primary/15 pt-8" aria-labelledby="at-a-glance-heading">
         <div>
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Board overview</p>
-            <h2 id="at-a-glance-heading" className="mt-1 text-xl font-semibold text-text-primary">At a glance</h2>
+            <h2 id="at-a-glance-heading" className="text-xl font-semibold text-text-primary">Board overview</h2>
             <p className="mt-1 text-sm text-text-muted">Live task distribution for {activeBoard.name}.</p>
           </div>
         </div>
@@ -2533,11 +2640,21 @@ export default function App() {
       </section>
       </>
       )}
+          </>
+        )}
         </div>
       </div>
 
-      <footer className="mx-auto mt-8 flex max-w-screen-2xl flex-col items-start justify-between gap-2 border-t border-brand-primary/15 py-5 text-sm text-text-muted sm:flex-row sm:items-center sm:gap-4">
-        <span className="font-medium text-text-primary">{project.name}</span>
+      <footer className="mx-auto mt-16 flex w-full max-w-screen-2xl flex-col items-start justify-between gap-4 border-t border-brand-primary/15 py-6 text-sm text-text-muted sm:flex-row sm:items-center sm:gap-6">
+        <div>
+          <span className="font-medium text-text-primary">{project.name}</span>
+          <span className="ml-2 text-xs uppercase tracking-[0.14em] text-text-muted">Prototype</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+          <span>Prototype workspace</span>
+          <a href="mailto:hello@anchor-prototype.test" className="transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30">hello@anchor-prototype.test</a>
+          <a href="tel:+442079460420" className="transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30">+44 20 7946 0420</a>
+        </div>
       </footer>
       </div>
 
@@ -2690,6 +2807,21 @@ export default function App() {
                   </select>
                 </div>
 
+                <label className={`flex cursor-pointer items-center justify-between gap-4 rounded-md border p-3 transition-colors ${
+                  form.isBlocked ? 'border-type-bug/50 bg-type-bug/10' : 'border-brand-primary/15 bg-surface-page/60'
+                }`}>
+                  <span>
+                    <span className="block text-sm font-medium text-text-primary">Blocked</span>
+                    <span className="mt-0.5 block text-xs text-text-muted">Flag work that cannot move forward.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={form.isBlocked}
+                    onChange={(event) => setForm((current) => ({ ...current, isBlocked: event.target.checked }))}
+                    className="size-4 accent-current"
+                  />
+                </label>
+
                 <div>
                   <label htmlFor="deliverableId" className="block text-sm font-medium text-text-primary">
                     Deliverable <span className="font-normal text-text-muted">(optional)</span>
@@ -2710,8 +2842,7 @@ export default function App() {
                 <section aria-labelledby="subtasks-heading" className="rounded-md border border-brand-primary/15 bg-surface-page/60 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Break it down</p>
-                      <h3 id="subtasks-heading" className="mt-1 text-base font-semibold text-text-primary">Subtasks</h3>
+                      <h3 id="subtasks-heading" className="text-base font-semibold text-text-primary">Subtasks</h3>
                     </div>
                     {form.subtasks.length > 0 && <SubtaskProgress subtasks={form.subtasks} />}
                   </div>
@@ -2769,38 +2900,6 @@ export default function App() {
                   </div>
                 </section>
               </fieldset>
-
-              {editingTask && (
-                <section aria-labelledby="comments-heading" className="mt-6 rounded-md border border-brand-primary/15 bg-surface-page/60 p-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Keep the context</p>
-                  <h3 id="comments-heading" className="mt-1 text-base font-semibold text-text-primary">Comments</h3>
-                  <div className="mt-4 flex gap-2">
-                    <label className="min-w-0 flex-1">
-                      <span className="sr-only">Add a comment</span>
-                      <input
-                        type="text"
-                        value={commentDraft}
-                        onChange={(event) => setCommentDraft(event.target.value)}
-                        placeholder="Add an update"
-                        className="w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
-                      />
-                    </label>
-                    <button type="button" onClick={addComment} className="rounded-md border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">
-                      Add
-                    </button>
-                  </div>
-                  {(taskComments[editingTask.id] ?? []).length > 0 && (
-                    <ol className="mt-4 space-y-2">
-                      {(taskComments[editingTask.id] ?? []).map((comment) => (
-                        <li key={comment.id} className="rounded-sm bg-surface-card px-3 py-2 text-sm text-text-primary">
-                          <p>{comment.body}</p>
-                          <time className="mt-1 block text-xs text-text-muted" dateTime={comment.timestamp}>{formatContextUpdatedAt(comment.timestamp)}</time>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </section>
-              )}
 
               <section
                 aria-labelledby="context-heading"
@@ -2864,6 +2963,54 @@ export default function App() {
                   </button>
                 )}
               </section>
+
+              {editingTask && (
+                <section aria-labelledby="comments-heading" className="mt-6 rounded-md border border-brand-primary/15 bg-surface-page/60 p-4">
+                  <h3 id="comments-heading" className="text-base font-semibold text-text-primary">Comments</h3>
+                  <div className="mt-4 flex items-center gap-2">
+                    <MemberAvatar member={currentUser} size="size-8" />
+                    <label className="min-w-0 flex-1">
+                      <span className="sr-only">Add a comment</span>
+                      <input
+                        type="text"
+                        value={commentDraft}
+                        onChange={(event) => setCommentDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') addComment();
+                        }}
+                        placeholder="Add an update"
+                        className="w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                      />
+                    </label>
+                    <button type="button" onClick={addComment} className="rounded-md border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">
+                      Add
+                    </button>
+                  </div>
+                  {(taskComments[editingTask.id] ?? []).length > 0 && (
+                    <ol className="mt-4 space-y-3">
+                      {(taskComments[editingTask.id] ?? []).map((comment) => {
+                        const author = members.find((member) => member.id === comment.authorId)
+                          ?? members.find((member) => member.name === comment.authorName)
+                          ?? members[0];
+                        const authorName = comment.authorName ?? author?.name ?? 'Workspace member';
+
+                        return (
+                          <li key={comment.id} className="flex items-start gap-2.5">
+                            <MemberAvatar member={author} size="size-8" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <span className="text-sm font-medium text-text-primary">{authorName}</span>
+                                <time className="text-xs text-text-muted" dateTime={comment.timestamp}>{formatContextUpdatedAt(comment.timestamp)}</time>
+                              </div>
+                              <p className="mt-1 rounded-md rounded-tl-none bg-surface-card px-3 py-2 text-sm leading-5 text-text-primary">{comment.body}</p>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  )}
+                </section>
+              )}
 
               <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-brand-primary/10 pt-4">
                 {editingTask ? (

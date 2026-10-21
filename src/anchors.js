@@ -15,7 +15,7 @@ export function isValidDeliverableUrl(value) {
 }
 
 export function isValidAnchors(anchors) {
-  if (!Array.isArray(anchors) || anchors.length !== DEFAULT_ANCHORS.length) return false;
+  if (!Array.isArray(anchors)) return false;
 
   const ids = new Set();
 
