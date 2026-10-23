@@ -226,7 +226,7 @@ function isValidMembers(value) {
 }
 
 function isValidWorkspaceTeams(value) {
-  return Array.isArray(value) && value.length > 0 && value.every((team) => (
+  return Array.isArray(value) && value.every((team) => (
     team
     && typeof team.id === 'string'
     && typeof team.name === 'string'
@@ -691,6 +691,7 @@ export default function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [editingAnchorId, setEditingAnchorId] = useState(null);
   const [isCreatingAnchor, setIsCreatingAnchor] = useState(false);
+  const [confirmingAnchorDeleteId, setConfirmingAnchorDeleteId] = useState(null);
   const [anchorUrl, setAnchorUrl] = useState('');
   const [anchorLabel, setAnchorLabel] = useState('');
   const [anchorError, setAnchorError] = useState('');
@@ -739,7 +740,6 @@ export default function App() {
   const isModalOpen = isCreating || editingTask !== null;
   const isDark = theme === 'dark';
   const assignees = [UNASSIGNED, ...(activeBoard.members ?? project.team)];
-  const activeTeam = teams.find((team) => team.id === activeBoard.teamId) ?? teams[0];
   const currentUser = members.find((member) => member.id === currentUserId) ?? members[0];
   const activity = activeBoard.activity ?? [];
   const workspaceMemberNames = [...new Set([...project.team, ...members.map((member) => member.name)])];
@@ -1100,10 +1100,6 @@ export default function App() {
   }
 
   function removeTeamSection(team) {
-    if (teamForm.length === 1) {
-      setTeamSectionError('Keep at least one team section.');
-      return;
-    }
     if (boards.some((board) => board.teamId === team.id)) {
       setTeamSectionError(`Move or edit boards in ${team.name} before removing this section.`);
       return;
@@ -1251,11 +1247,6 @@ export default function App() {
       boardNameInputRef.current?.focus();
       return;
     }
-    if (boardForm.members.length === 0) {
-      setBoardError('Select at least one team member.');
-      return;
-    }
-
     if (editingBoardId) {
       setBoards((current) => current.map((board) => (
         board.id === editingBoardId
@@ -1307,7 +1298,7 @@ export default function App() {
 
   function openCreate(event) {
     if (!activeBoard.id) {
-      openBoardCreator(teams[0]?.id ?? DEFAULT_WORKSPACE_TEAMS[0].id, event);
+      openBoardCreator(teams[0]?.id ?? '', event);
       return;
     }
 
@@ -1565,6 +1556,7 @@ export default function App() {
   function openAnchorEditor(anchor) {
     setEditingAnchorId(anchor.id);
     setIsCreatingAnchor(false);
+    setConfirmingAnchorDeleteId(null);
     setAnchorUrl(anchor.url ?? '');
     setAnchorLabel(anchor.label);
     setAnchorError('');
@@ -1576,6 +1568,7 @@ export default function App() {
     }
     setEditingAnchorId(null);
     setIsCreatingAnchor(false);
+    setConfirmingAnchorDeleteId(null);
     setAnchorUrl('');
     setAnchorLabel('');
     setAnchorError('');
@@ -1600,6 +1593,7 @@ export default function App() {
     setAnchors((current) => current.map((item) => (
       item.id === anchor.id ? { ...item, label, url: url || null } : item
     )));
+    logActivity(`${isCreatingAnchor ? 'created' : 'updated'} deliverable “${label}”`);
     setNotice('Deliverable saved.');
     closeAnchorEditor(true);
   }
@@ -1609,6 +1603,7 @@ export default function App() {
     setAnchors((current) => [...current, anchor]);
     setEditingAnchorId(anchor.id);
     setIsCreatingAnchor(true);
+    setConfirmingAnchorDeleteId(null);
     setAnchorLabel(anchor.label);
     setAnchorUrl('');
     setAnchorError('');
@@ -1621,9 +1616,11 @@ export default function App() {
       delete next[anchor.id];
       return next;
     });
+    logActivity(`removed deliverable “${anchor.label}”`);
     setNotice('Deliverable removed.');
     setIsCreatingAnchor(false);
     setEditingAnchorId(null);
+    setConfirmingAnchorDeleteId(null);
   }
 
   function removeAnchorLink(anchor) {
@@ -1822,7 +1819,7 @@ export default function App() {
         <aside
           aria-hidden={!isSidebarOpen && !isMobileSidebarOpen}
           aria-label="Workspace navigation"
-          className={`fixed inset-y-0 left-0 z-30 w-72 max-w-[calc(100vw-3rem)] overflow-y-auto bg-surface-page px-4 py-6 shadow-xl transition-transform duration-200 ease-out motion-reduce:transition-none lg:static lg:z-auto lg:max-w-none lg:overflow-hidden lg:bg-transparent lg:px-0 lg:py-0 lg:shadow-none lg:transition-[width,margin] ${
+          className={`fixed inset-y-0 left-0 z-30 w-72 max-w-[calc(100vw-3rem)] overflow-y-auto bg-surface-page px-4 py-6 shadow-xl transition-transform duration-200 ease-out motion-reduce:transition-none lg:static lg:z-auto lg:max-w-none lg:self-stretch lg:overflow-hidden lg:bg-transparent lg:px-0 lg:py-0 lg:shadow-none lg:transition-[width,margin] ${
             isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           } ${
             isSidebarOpen
@@ -1830,7 +1827,7 @@ export default function App() {
               : 'lg:w-0 lg:delay-100 lg:pointer-events-none'
           }`}
         >
-          <div className={`sticky top-6 w-full border-r border-brand-primary/15 pr-5 transition-[opacity,transform] duration-100 ease-out motion-reduce:transition-none lg:w-52 ${
+          <div className={`sticky top-6 w-full border-r border-brand-primary/15 pr-5 transition-[opacity,transform] duration-100 ease-out motion-reduce:transition-none lg:h-full lg:w-52 ${
             isSidebarOpen || isMobileSidebarOpen ? 'translate-x-0 opacity-100 delay-200' : '-translate-x-2 opacity-0 delay-0'
           }`}>
             <label className="relative block">
@@ -1905,30 +1902,64 @@ export default function App() {
                   </section>
                 );
               })}
+              {matchingBoards.filter((board) => !teams.some((team) => team.id === board.teamId)).length > 0 && (
+                <section aria-labelledby="ungrouped-boards">
+                  <h2 id="ungrouped-boards" className="text-xs font-medium uppercase tracking-wide text-text-muted">Ungrouped</h2>
+                  <div className="mt-2 space-y-1">
+                    {matchingBoards.filter((board) => !teams.some((team) => team.id === board.teamId)).map((board) => (
+                      <div key={board.id} className="group relative">
+                        <button
+                          type="button"
+                          onClick={() => selectBoard(board.id)}
+                          className={`flex w-full items-center gap-2 border-l-2 py-1.5 pl-2 pr-8 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-primary/30 ${
+                            board.id === activeBoard.id
+                              ? 'border-brand-primary bg-brand-primary/10 font-medium text-text-primary'
+                              : 'border-transparent text-text-muted hover:bg-brand-primary/5 hover:text-text-primary'
+                          }`}
+                        >
+                          <span className="size-1.5 shrink-0 bg-current" />
+                          <span className="truncate">{board.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => openBoardEditor(event, board)}
+                          aria-label={`Edit ${board.name}`}
+                          title="Board settings"
+                          className="absolute right-1 top-1/2 -translate-x-1 -translate-y-1/2 scale-75 p-1 text-text-muted opacity-0 transition-all duration-150 ease-out hover:text-text-primary focus-visible:translate-x-0 focus-visible:scale-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/30 group-hover:translate-x-0 group-hover:scale-100 group-hover:opacity-100"
+                        >
+                          <Settings aria-hidden="true" size={14} strokeWidth={2} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
               {normalizedBoardSearch && matchingBoards.length === 0 && !teams.some((team) => team.name.toLowerCase().includes(normalizedBoardSearch)) && (
                 <p className="text-sm text-text-muted">No boards found.</p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={(event) => openBoardCreator(activeTeam.id, event)}
-              className="mt-6 w-full rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-            >
-              + New board
-            </button>
+            {teams.length > 0 && (
+              <button
+                type="button"
+                onClick={(event) => openBoardCreator(teams[0].id, event)}
+                className="mt-6 w-full rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+              >
+                + New board
+              </button>
+            )}
           </div>
         </aside>
 
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
         {boards.length === 0 ? (
-          <section id="board" className="flex min-h-[26rem] items-center justify-center rounded-sm border border-dashed border-brand-primary/25 bg-surface-card px-6 text-center" aria-labelledby="empty-workspace-heading">
+          <section id="board" className="flex min-h-[26rem] flex-1 items-center justify-center rounded-sm border border-dashed border-brand-primary/25 bg-surface-card px-6 text-center" aria-labelledby="empty-workspace-heading">
             <div className="max-w-md">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Workspace</p>
               <h1 id="empty-workspace-heading" className="mt-2 text-2xl font-semibold text-text-primary">No boards yet</h1>
               <p className="mt-3 text-sm leading-6 text-text-muted">Create a board when you are ready to organise work. You can choose a team, members, and a starter setup.</p>
               <button
                 type="button"
-                onClick={(event) => openBoardCreator(teams[0]?.id ?? DEFAULT_WORKSPACE_TEAMS[0].id, event)}
+                onClick={(event) => openBoardCreator(teams[0]?.id ?? '', event)}
                 className="mt-6 rounded-sm bg-brand-primary px-4 py-2 text-sm font-medium text-surface-card shadow-sm transition-colors hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page"
               >
                 Create a board
@@ -1990,7 +2021,7 @@ export default function App() {
               onClick={addAnchor}
               className="rounded-sm border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
             >
-              + Add deliverable
+              + New deliverable
             </button>
           </div>
           {anchors.length === 0 ? (
@@ -2070,7 +2101,7 @@ export default function App() {
                         type="submit"
                         className="rounded-md bg-brand-primary px-3 py-2 text-sm font-medium text-surface-card hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
                       >
-                        Save link
+                        Save deliverable
                       </button>
                       <button
                         type="button"
@@ -2079,13 +2110,33 @@ export default function App() {
                       >
                         Cancel
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteAnchor(anchor)}
-                        className="rounded-md px-3 py-2 text-sm font-medium text-type-bug hover:bg-type-bug/10 focus:outline-none focus:ring-2 focus:ring-type-bug/30"
-                      >
-                        Remove deliverable
-                      </button>
+                      {confirmingAnchorDeleteId === anchor.id ? (
+                        <span className="flex items-center gap-2 rounded-md bg-type-bug/10 px-2 py-1.5 text-xs text-type-bug">
+                          Delete this deliverable?
+                          <button
+                            type="button"
+                            onClick={() => deleteAnchor(anchor)}
+                            className="rounded-sm bg-type-bug px-2 py-1 text-xs font-semibold text-surface-card focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingAnchorDeleteId(null)}
+                            className="rounded-sm px-1 py-1 text-xs font-medium hover:bg-type-bug/10 focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingAnchorDeleteId(anchor.id)}
+                          className="rounded-md px-3 py-2 text-sm font-medium text-type-bug hover:bg-type-bug/10 focus:outline-none focus:ring-2 focus:ring-type-bug/30"
+                        >
+                          Delete deliverable
+                        </button>
+                      )}
                       {anchor.url && (
                         <button
                           type="button"
@@ -2102,9 +2153,11 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => openAnchorEditor(anchor)}
-                      className="rounded-md border border-brand-primary/20 px-3 py-2 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                      aria-label={`Edit ${anchor.label}`}
+                      title="Deliverable settings"
+                      className="inline-flex size-9 items-center justify-center rounded-md border border-brand-primary/20 text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
                     >
-                      {anchor.url ? 'Edit link' : 'Add link'}
+                      <Settings aria-hidden="true" size={16} strokeWidth={2} />
                     </button>
                     {anchor.url && (
                       <a
@@ -3342,7 +3395,7 @@ export default function App() {
               )}
 
               <div className="mt-5">
-                <label htmlFor="board-team" className="block text-sm font-medium text-text-primary">Team</label>
+                <label htmlFor="board-team" className="block text-sm font-medium text-text-primary">Team <span className="font-normal text-text-muted">(optional)</span></label>
                 <select
                   id="board-team"
                   value={boardForm.teamId}
@@ -3352,8 +3405,10 @@ export default function App() {
                   }}
                   className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
                 >
+                  <option value="">No team</option>
                   {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
                 </select>
+                {teams.length === 0 && <p className="mt-1.5 text-xs text-text-muted">This board will stay ungrouped until you add a team.</p>}
               </div>
 
               <fieldset className="mt-5 rounded-md border border-brand-primary/15 bg-surface-page/60 p-4">
@@ -3379,8 +3434,8 @@ export default function App() {
               </fieldset>
 
               <fieldset className="mt-6 rounded-md border border-brand-primary/15 bg-surface-page/60 p-4">
-                <legend className="px-1 text-sm font-medium text-text-primary">Board members</legend>
-                <p className="mt-1 text-xs text-text-muted">Only selected people can be assigned tasks on this board.</p>
+                <legend className="px-1 text-sm font-medium text-text-primary">Board members <span className="font-normal text-text-muted">(optional)</span></legend>
+                <p className="mt-1 text-xs text-text-muted">Only selected people can be assigned tasks on this board. Leave this empty for an unassigned board.</p>
                 <div className="mt-4 space-y-2">
                   {workspaceMemberNames.map((member) => (
                     <label key={member} className="flex cursor-pointer items-center gap-3 rounded-sm bg-surface-card px-3 py-2 text-sm text-text-primary">
