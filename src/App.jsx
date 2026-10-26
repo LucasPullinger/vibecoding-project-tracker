@@ -2706,7 +2706,7 @@ export default function App() {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
           <span>Prototype workspace</span>
           <a href="mailto:hello@anchor-prototype.test" className="transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30">hello@anchor-prototype.test</a>
-          <a href="tel:+442079460420" className="transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30">+44 20 7946 0420</a>
+          <a href="tel:+440000000" className="transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30">+44 0000000</a>
         </div>
       </footer>
       </div>
