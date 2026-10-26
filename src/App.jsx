@@ -723,6 +723,9 @@ export default function App() {
   const [calendarMonth, setCalendarMonth] = useState(() => getLocalDate().slice(0, 7));
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [commentEditDraft, setCommentEditDraft] = useState('');
+  const [confirmingCommentDeleteId, setConfirmingCommentDeleteId] = useState(null);
   const [assigneeMenuTaskId, setAssigneeMenuTaskId] = useState(null);
   const [isCopying, setIsCopying] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -867,6 +870,40 @@ export default function App() {
     }));
     logActivity(`Commented on “${editingTask.title}”.`);
     setCommentDraft('');
+  }
+
+  function startCommentEdit(comment) {
+    setEditingCommentId(comment.id);
+    setCommentEditDraft(comment.body);
+    setConfirmingCommentDeleteId(null);
+  }
+
+  function saveCommentEdit(comment) {
+    const body = commentEditDraft.trim();
+    if (!editingTask || !body) return;
+
+    setTaskComments((current = {}) => ({
+      ...current,
+      [editingTask.id]: (current[editingTask.id] ?? []).map((item) => (
+        item.id === comment.id ? { ...item, body } : item
+      )),
+    }));
+    logActivity(`Edited a comment on “${editingTask.title}”.`);
+    setNotice('Comment updated.');
+    setEditingCommentId(null);
+    setCommentEditDraft('');
+  }
+
+  function deleteComment(comment) {
+    if (!editingTask) return;
+
+    setTaskComments((current = {}) => ({
+      ...current,
+      [editingTask.id]: (current[editingTask.id] ?? []).filter((item) => item.id !== comment.id),
+    }));
+    logActivity(`Deleted a comment on “${editingTask.title}”.`);
+    setNotice('Comment deleted.');
+    setConfirmingCommentDeleteId(null);
   }
 
   function logActivity(message) {
@@ -1052,6 +1089,9 @@ export default function App() {
     setEditingTask(null);
     setIsCreating(false);
     setIsConfirmingTaskDelete(false);
+    setEditingCommentId(null);
+    setCommentEditDraft('');
+    setConfirmingCommentDeleteId(null);
     setErrors({});
     window.requestAnimationFrame(() => triggerRef.current?.focus());
   }
@@ -2790,13 +2830,17 @@ export default function App() {
                   </div>
                   <div>
                     <label htmlFor="status" className="block text-sm font-medium text-text-primary">
-                      Status
+                      Status <span className="font-normal text-text-muted">(keyboard alternative to dragging)</span>
                     </label>
+                    <p id="status-help" className="mt-1 text-xs text-text-muted">
+                      Use the arrow keys to choose a stage, then save the task.
+                    </p>
                     <select
                       id="status"
                       name="status"
                       value={form.status}
                       onChange={updateForm}
+                      aria-describedby="status-help"
                       className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
                     >
                       {STAGES.map((stage) => (
@@ -3046,6 +3090,10 @@ export default function App() {
                           ?? members.find((member) => member.name === comment.authorName)
                           ?? members[0];
                         const authorName = comment.authorName ?? author?.name ?? 'Workspace member';
+                        const isOwnComment = comment.authorId
+                          ? comment.authorId === currentUser?.id
+                          : authorName === currentUser?.name;
+                        const isEditingComment = editingCommentId === comment.id;
 
                         return (
                           <li key={comment.id} className="flex items-start gap-2.5">
@@ -3054,8 +3102,42 @@ export default function App() {
                               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                                 <span className="text-sm font-medium text-text-primary">{authorName}</span>
                                 <time className="text-xs text-text-muted" dateTime={comment.timestamp}>{formatContextUpdatedAt(comment.timestamp)}</time>
+                                {isOwnComment && !isEditingComment && (
+                                  <span className="ml-auto flex items-center gap-2 text-xs">
+                                    <button type="button" onClick={() => startCommentEdit(comment)} className="font-medium text-brand-primary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30">Edit</button>
+                                    {confirmingCommentDeleteId === comment.id ? (
+                                      <span className="flex items-center gap-1 text-type-bug">
+                                        Delete?
+                                        <button type="button" onClick={() => deleteComment(comment)} className="font-medium hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-type-bug/30">Yes</button>
+                                        <button type="button" onClick={() => setConfirmingCommentDeleteId(null)} className="font-medium hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-type-bug/30">No</button>
+                                      </span>
+                                    ) : (
+                                      <button type="button" onClick={() => setConfirmingCommentDeleteId(comment.id)} className="font-medium text-text-muted hover:text-type-bug focus:outline-none focus:ring-2 focus:ring-brand-primary/30">Delete</button>
+                                    )}
+                                  </span>
+                                )}
                               </div>
-                              <p className="mt-1 rounded-md rounded-tl-none bg-surface-card px-3 py-2 text-sm leading-5 text-text-primary">{comment.body}</p>
+                              {isEditingComment ? (
+                                <div className="mt-1 flex gap-2 rounded-md rounded-tl-none bg-surface-card p-2">
+                                  <label className="min-w-0 flex-1">
+                                    <span className="sr-only">Edit comment</span>
+                                    <input
+                                      type="text"
+                                      value={commentEditDraft}
+                                      onChange={(event) => setCommentEditDraft(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') saveCommentEdit(comment);
+                                        if (event.key === 'Escape') setEditingCommentId(null);
+                                      }}
+                                      className="w-full rounded-sm border border-brand-primary/20 bg-surface-page px-2 py-1.5 text-sm text-text-primary outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                                    />
+                                  </label>
+                                  <button type="button" onClick={() => saveCommentEdit(comment)} className="rounded-sm px-2 py-1 text-xs font-medium text-brand-primary hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">Save</button>
+                                  <button type="button" onClick={() => setEditingCommentId(null)} className="rounded-sm px-2 py-1 text-xs font-medium text-text-muted hover:bg-brand-primary/10 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">Cancel</button>
+                                </div>
+                              ) : (
+                                <p className="mt-1 rounded-md rounded-tl-none bg-surface-card px-3 py-2 text-sm leading-5 text-text-primary">{comment.body}</p>
+                              )}
                             </div>
                           </li>
                         );

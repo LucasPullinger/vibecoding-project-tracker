@@ -47,6 +47,17 @@
   opacity: 0.75;
 }
 
+/* Form boundaries need enough contrast to identify controls without focus. */
+:where(input, textarea, select) {
+  border-color: rgb(var(--color-brand-primary) / 0.7) !important;
+}
+
+/* Keep the keyboard focus target visible on every interactive control. */
+:focus-visible {
+  outline: 3px solid rgb(var(--color-brand-primary)) !important;
+  outline-offset: 3px;
+}
+
 html {
   background-color: rgb(var(--color-surface-page));
 }
