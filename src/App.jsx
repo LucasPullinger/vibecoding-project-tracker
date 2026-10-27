@@ -59,9 +59,9 @@ export const TEAM = ['Teammate A', 'Teammate B', 'Teammate C'];
 const UNASSIGNED = 'Unassigned';
 const DEFAULT_PROJECT = { name: 'Anchor', team: TEAM };
 const DEFAULT_MEMBERS = [
-  { id: 'member-a', name: 'Teammate A', email: 'alex@anchor.local', role: 'Admin', avatar: '/member-a.png' },
-  { id: 'member-b', name: 'Teammate B', email: 'jamie@anchor.local', role: 'Member', avatar: '/member-b.png' },
-  { id: 'member-c', name: 'Teammate C', email: 'riley@anchor.local', role: 'Member', avatar: '/member-c.png' },
+  { id: 'member-a', name: 'Teammate A', email: 'alex@anchor.local', role: 'Admin', avatar: '/member-a-sm.png' },
+  { id: 'member-b', name: 'Teammate B', email: 'jamie@anchor.local', role: 'Member', avatar: '/member-b-sm.png' },
+  { id: 'member-c', name: 'Teammate C', email: 'riley@anchor.local', role: 'Member', avatar: '/member-c-sm.png' },
 ];
 const DEFAULT_WORKSPACE_TEAMS = [
   { id: 'product', name: 'Product' },
@@ -266,13 +266,13 @@ function isValidBoards(value) {
 const TASK_TYPE_DETAILS = {
   feature: {
     label: 'Feature',
-    iconPath: '/feature-icon.png',
+    iconPath: '/feature-icon-sm.png',
     badgeClassName: 'border-type-feature/30 bg-type-feature/10 text-type-feature',
     stripeClassName: 'border-l-type-feature',
   },
   bug: {
     label: 'Bug',
-    iconPath: '/bug-icon.png',
+    iconPath: '/bug-icon-sm.png',
     badgeClassName: 'border-type-bug/30 bg-type-bug/10 text-type-bug',
     stripeClassName: 'border-l-type-bug',
   },
@@ -729,6 +729,7 @@ export default function App() {
   const [assigneeMenuTaskId, setAssigneeMenuTaskId] = useState(null);
   const [isCopying, setIsCopying] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [isOverviewVisible, setIsOverviewVisible] = useState(false);
   const titleInputRef = useRef(null);
   const taskSearchInputRef = useRef(null);
   const assigneeSelectRef = useRef(null);
@@ -740,6 +741,7 @@ export default function App() {
   const filterDetailsRef = useRef(null);
   const userProfileRef = useRef(null);
   const triggerRef = useRef(null);
+  const boardOverviewRef = useRef(null);
   const isModalOpen = isCreating || editingTask !== null;
   const isDark = theme === 'dark';
   const assignees = [UNASSIGNED, ...(activeBoard.members ?? project.team)];
@@ -1014,6 +1016,20 @@ export default function App() {
 
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    if (activeWorkspaceTab !== 'board' || isOverviewVisible || !boardOverviewRef.current) return undefined;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setIsOverviewVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '200px' });
+
+    observer.observe(boardOverviewRef.current);
+    return () => observer.disconnect();
+  }, [activeWorkspaceTab, isOverviewVisible]);
 
   useEffect(() => {
     if (editingAnchorId) {
@@ -1756,9 +1772,13 @@ export default function App() {
           )}
         </button>
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-2 py-2.5 pl-14 pr-3 sm:gap-4 sm:py-3 sm:pl-20 sm:pr-6 lg:pr-8">
-        <a href="#board" className="flex shrink-0 items-center gap-2 sm:gap-3 text-text-primary">
+        <a
+          href="#board"
+          aria-label="Go to the Anchor board"
+          className="flex shrink-0 items-center gap-2 sm:gap-3 text-text-primary"
+        >
           <img
-            src="/anchor-logo.png"
+            src="/anchor-logo-sm.png"
             alt=""
             className={`size-9 shrink-0 object-contain sm:size-11 ${isDark ? '' : 'brightness-[0.45] saturate-150 contrast-125'}`}
           />
@@ -2690,7 +2710,7 @@ export default function App() {
           </ul>
         </details>
       )}
-      <section className="mt-12 border-t border-brand-primary/15 pt-8" aria-labelledby="at-a-glance-heading">
+      <section ref={boardOverviewRef} className="mt-12 border-t border-brand-primary/15 pt-8" aria-labelledby="at-a-glance-heading">
         <div>
           <div>
             <h2 id="at-a-glance-heading" className="text-xl font-semibold text-text-primary">Board overview</h2>
@@ -2699,9 +2719,13 @@ export default function App() {
         </div>
         <div className="mt-5 max-w-5xl overflow-hidden rounded-sm border border-brand-primary/15 bg-surface-card md:grid md:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
           <div className="flex flex-col items-start gap-4 border-b border-brand-primary/15 p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-5 md:border-b-0 md:border-r">
-            <Suspense fallback={<div className="size-[172px] shrink-0 rounded-full bg-brand-primary/10" />}>
-              <StatusPieChart statusCounts={statusCounts} />
-            </Suspense>
+            {isOverviewVisible ? (
+              <Suspense fallback={<div className="size-[172px] shrink-0 rounded-full bg-brand-primary/10" />}>
+                <StatusPieChart statusCounts={statusCounts} />
+              </Suspense>
+            ) : (
+              <div aria-hidden="true" className="size-[172px] shrink-0 rounded-full bg-brand-primary/10" />
+            )}
             <div className="space-y-2 text-sm">
               {statusCounts.map((status) => (
                 <div key={status.id} className="flex items-center gap-2 text-text-muted">
