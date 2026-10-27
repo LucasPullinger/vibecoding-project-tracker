@@ -2010,7 +2010,7 @@ export default function App() {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <main id="main-content" className="flex min-w-0 flex-1 flex-col">
         {boards.length === 0 ? (
           <section id="board" className="flex min-h-[26rem] flex-1 items-center justify-center rounded-sm border border-dashed border-brand-primary/25 bg-surface-card px-6 text-center" aria-labelledby="empty-workspace-heading">
             <div className="max-w-md">
@@ -2514,7 +2514,7 @@ export default function App() {
       </details>
 
       <DragDropContext onDragEnd={handleDragEnd}>
-        <main id="board" className="mt-8 scroll-mt-6" aria-label="Kanban board">
+        <section id="board" className="mt-8 scroll-mt-6" aria-label="Kanban board">
           <div className="snap-x snap-mandatory overflow-x-auto pb-3">
             <div className="grid min-w-[960px] grid-cols-4 gap-4 sm:min-w-[1080px] sm:gap-6">
             {STAGES.map((stage) => {
@@ -2688,7 +2688,7 @@ export default function App() {
             })}
             </div>
           </div>
-        </main>
+        </section>
       </DragDropContext>
       {archivedTasks.length > 0 && (
         <details className="mt-8 rounded-sm border border-brand-primary/15 bg-surface-card">
@@ -2759,7 +2759,7 @@ export default function App() {
       )}
           </>
         )}
-        </div>
+        </main>
       </div>
 
       <footer className="mx-auto mt-16 flex w-full max-w-screen-2xl flex-col items-start justify-between gap-4 border-t border-brand-primary/15 py-6 text-sm text-text-muted sm:flex-row sm:items-center sm:gap-6">
