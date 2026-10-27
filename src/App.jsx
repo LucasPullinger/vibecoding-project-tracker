@@ -236,7 +236,7 @@ function isValidWorkspaceTeams(value) {
 }
 
 function isValidBoards(value) {
-  return Array.isArray(value) && value.length > 0 && value.every((board) => (
+  return Array.isArray(value) && value.every((board) => (
     board
     && typeof board.id === 'string'
     && typeof board.name === 'string'
@@ -340,6 +340,92 @@ function MemberAvatar({ member, size = 'size-6' }) {
     <span className={`inline-flex ${size} shrink-0 items-center justify-center rounded-full bg-brand-primary text-[10px] font-semibold text-surface-card`} aria-hidden="true">
       {member.name.slice(0, 2).toUpperCase()}
     </span>
+  );
+}
+
+function AccessScreen({ members, mode, onModeChange, onSelectUser, onCreateUser, signupError, signupName, onSignupNameChange }) {
+  const isSignup = mode === 'signup';
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-surface-page px-4 py-8 text-text-primary">
+      <main className="w-full max-w-md rounded-md border border-brand-primary/15 bg-surface-card p-6 shadow-sm sm:p-8">
+        <div className="flex items-center gap-3">
+          <img src="/anchor-logo-sm.png" alt="" className="size-12 object-contain" />
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Anchor</p>
+              <span className="rounded-sm border border-due-warning/30 bg-due-warning/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-due-warning">Dev</span>
+            </div>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">{isSignup ? 'Create profile' : 'Login'}</h1>
+          </div>
+        </div>
+
+        {isSignup ? (
+          <form className="mt-8" onSubmit={onCreateUser}>
+            <label htmlFor="signup-name" className="block text-sm font-medium">Your name</label>
+            <input
+              id="signup-name"
+              value={signupName}
+              onChange={(event) => onSignupNameChange(event.target.value)}
+              placeholder="e.g. Taylor Morgan"
+              className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2.5 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+              autoFocus
+            />
+            {signupError && <p className="mt-2 text-sm text-type-bug">{signupError}</p>}
+            <button type="submit" className="mt-5 w-full rounded-sm bg-brand-primary px-4 py-2.5 text-sm font-medium text-surface-card hover:bg-brand-accent focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2 focus:ring-offset-surface-page">
+              Create profile
+            </button>
+            <button type="button" onClick={() => onModeChange('login')} className="mt-3 w-full rounded-sm px-4 py-2 text-sm font-medium text-text-muted hover:bg-brand-primary/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30">
+              Back to login
+            </button>
+          </form>
+        ) : (
+          <>
+            <p className="mt-7 text-sm text-text-muted">Demo credentials are shown for presentation purposes. Choose a profile below to enter the workspace.</p>
+            <div className="mt-4 grid gap-3">
+              <label>
+                <span className="text-sm font-medium">Username</span>
+                <input
+                  type="text"
+                  placeholder="demo@anchor.local"
+                  autoComplete="username"
+                  className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2.5 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                />
+              </label>
+              <label>
+                <span className="text-sm font-medium">Password</span>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  className="mt-1.5 w-full rounded-md border border-brand-primary/20 bg-surface-card px-3 py-2.5 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20"
+                />
+              </label>
+            </div>
+            <div className="mt-6 space-y-2">
+              <p className="text-xs font-medium uppercase tracking-[0.14em] text-text-muted">Choose a demo profile</p>
+              {members.map((member) => (
+                <button
+                  key={member.id}
+                  type="button"
+                  onClick={() => onSelectUser(member)}
+                  className="flex w-full items-center gap-3 rounded-sm border border-brand-primary/15 px-3 py-3 text-left transition-colors hover:border-brand-primary/35 hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+                >
+                  <MemberAvatar member={member} size="size-9" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{member.name}</span>
+                  <span className="text-xs text-text-muted">{member.role}</span>
+                </button>
+              ))}
+            </div>
+            {members.length < 4 && (
+              <button type="button" onClick={() => onModeChange('signup')} className="mt-5 w-full rounded-sm border border-dashed border-brand-primary/30 px-4 py-2.5 text-sm font-medium text-brand-primary hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30">
+                + Add a user
+              </button>
+            )}
+          </>
+        )}
+      </main>
+    </div>
   );
 }
 
@@ -667,7 +753,7 @@ export default function App() {
     DEFAULT_PROJECT,
     isValidProject,
   );
-  const [members] = useLocalStorage(
+  const [members, setMembers] = useLocalStorage(
     'vibetracker.members',
     DEFAULT_MEMBERS,
     isValidMembers,
@@ -675,6 +761,11 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useLocalStorage(
     'vibetracker.current-user',
     DEFAULT_MEMBERS[0].id,
+    (value) => typeof value === 'string',
+  );
+  const [signedInUserId, setSignedInUserId] = useLocalStorage(
+    'vibetracker.signed-in-user',
+    '',
     (value) => typeof value === 'string',
   );
   const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0] ?? EMPTY_BOARD;
@@ -730,6 +821,9 @@ export default function App() {
   const [isCopying, setIsCopying] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [isOverviewVisible, setIsOverviewVisible] = useState(false);
+  const [accessMode, setAccessMode] = useState('login');
+  const [signupName, setSignupName] = useState('');
+  const [signupError, setSignupError] = useState('');
   const titleInputRef = useRef(null);
   const taskSearchInputRef = useRef(null);
   const assigneeSelectRef = useRef(null);
@@ -953,8 +1047,46 @@ export default function App() {
 
   function selectCurrentUser(member) {
     setCurrentUserId(member.id);
+    setSignedInUserId(member.id);
     userProfileRef.current?.removeAttribute('open');
     setNotice(`You are now ${member.name}.`);
+  }
+
+  function signIn(member) {
+    setCurrentUserId(member.id);
+    setSignedInUserId(member.id);
+    setAccessMode('login');
+  }
+
+  function createUser(event) {
+    event.preventDefault();
+    const name = signupName.trim();
+
+    if (!name) {
+      setSignupError('Enter a name to create a profile.');
+      return;
+    }
+    if (members.some((member) => member.name.toLowerCase() === name.toLowerCase())) {
+      setSignupError('That profile already exists.');
+      return;
+    }
+    if (members.length >= 4) {
+      setSignupError('This prototype supports up to four profiles.');
+      return;
+    }
+
+    const member = {
+      id: `member-${createTaskId()}`,
+      name,
+      email: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || 'user'}@anchor.local`,
+      role: 'Member',
+      avatar: '',
+    };
+
+    setMembers((current) => [...current, member]);
+    setSignupName('');
+    setSignupError('');
+    signIn(member);
   }
 
   function toggleSidebar() {
@@ -1755,6 +1887,27 @@ export default function App() {
     setFilterPriority('all');
   }
 
+  if (!members.some((member) => member.id === signedInUserId)) {
+    return (
+      <AccessScreen
+        members={members}
+        mode={accessMode}
+        onModeChange={(mode) => {
+          setAccessMode(mode);
+          setSignupError('');
+        }}
+        onSelectUser={signIn}
+        onCreateUser={createUser}
+        signupError={signupError}
+        signupName={signupName}
+        onSignupNameChange={(name) => {
+          setSignupName(name);
+          setSignupError('');
+        }}
+      />
+    );
+  }
+
   return (
     <div className={`${isDark ? 'dark ' : ''}flex min-h-screen flex-col bg-surface-page transition-colors duration-200`}>
       <header className="relative mb-4 border-b border-brand-primary/15 bg-surface-card shadow-sm sm:mb-8">
@@ -1815,6 +1968,17 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSignedInUserId('');
+                  setAccessMode('login');
+                  userProfileRef.current?.removeAttribute('open');
+                }}
+                className="mt-3 w-full border-t border-brand-primary/10 pt-3 text-left text-xs font-medium text-text-muted hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+              >
+                Sign out
+              </button>
             </div>
           </details>
           <button
@@ -2431,7 +2595,7 @@ export default function App() {
 
       {activeWorkspaceTab === 'board' && (
       <>
-      <details ref={filterDetailsRef} className="group relative mb-6 w-fit" aria-labelledby="filter-heading">
+      <details ref={filterDetailsRef} className="group relative z-40 mb-6 w-fit" aria-labelledby="filter-heading">
         <summary className="flex w-fit cursor-pointer list-none items-center gap-3 rounded-sm border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm font-medium text-text-primary shadow-sm hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
           <div className="flex min-w-0 items-center gap-3">
             <span className="text-due-warning">
