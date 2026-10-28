@@ -2595,7 +2595,7 @@ export default function App() {
 
       {activeWorkspaceTab === 'board' && (
       <>
-      <details ref={filterDetailsRef} className="group relative z-40 mb-6 w-fit" aria-labelledby="filter-heading">
+      <details ref={filterDetailsRef} className="group relative z-10 mb-6 w-fit lg:z-40" aria-labelledby="filter-heading">
         <summary className="flex w-fit cursor-pointer list-none items-center gap-3 rounded-sm border border-brand-primary/20 bg-surface-card px-3 py-2 text-sm font-medium text-text-primary shadow-sm hover:bg-brand-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary/30 [&::-webkit-details-marker]:hidden">
           <div className="flex min-w-0 items-center gap-3">
             <span className="text-due-warning">
